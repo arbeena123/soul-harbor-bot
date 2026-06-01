@@ -144,12 +144,16 @@ client.on('guildMemberAdd', async (member) => {
 
   const embed = makeEmbed(
     `🔮 Welcome, ${member.displayName}!`,
-    `The spirits have been expecting you...\n\n` +
-    `You've entered **The Pagan Shop Online** community — a gathering place for spirit keepers, practitioners, and seekers of the mystical arts.\n\n` +
-    `🕯️ Browse our spirit companions at **thepaganshoponline.com**\n` +
-    `🃏 Ask me for a **tarot reading** anytime\n` +
-    `👻 Check out the **ghost stories** channel\n` +
-    `🏆 Join our **daily contests** to win discount codes\n\n` +
+    `The spirits have been expecting you... Welcome to **Soul Harbor**. \n\n` +
+    `You have entered the official community of **The Pagan Shop Online** — a gathering place for spirit keepers, practitioners, and seekers of the mystical arts.\n\n` +
+    `**I am Soul Harbor, your AI spirit guide.** Here is how to work with me:\n\n` +
+    `🃏 Ask me for a tarot reading — *"Can you do a 3 card reading"* or *"give me a 6 card spread"*\n` +
+    `👻 Ask me for a ghost story — *"tell me a ghost story"*\n` +
+    `🌙 Ask your horoscope — *"what is my Scorpio horoscope"*\n` +
+    `🔮 Ask about any spirit — *"tell me about djinn"*\n` +
+    `💬 Or just chat with me naturally — no special commands needed\n` +
+    `🏆 Join the **daily trivia contest** at 6pm for a chance to win discount codes\n\n` +
+    `🕯️ Browse our spirit companions at **thepaganshoponline.com**\n\n` +
     `May your spirits guide you well. 🌙`
   ).setThumbnail(member.user.displayAvatarURL());
 
@@ -497,10 +501,13 @@ async function handleSpiritInfo(message, spiritName) {
 }
 
 // ─── GENERAL CHAT ────────────────────────────────────────
-async function handleChat(message, content) {
+async function handleChat(message, userInput) {
   const reply = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content }
+    {
+      role: 'system',
+      content: SPIRIT_SYSTEM_PROMPT + '\n\nIf the message contains obvious spelling mistakes, gently note the correct spelling at the very end of your response like: *(Just a note: it is spelled correctly as X)*. Only for clear typos, not slang. Keep it friendly and brief.'
+    },
+    { role: 'user', content: userInput }
   ], 350);
 
   if (reply) message.reply(reply);
