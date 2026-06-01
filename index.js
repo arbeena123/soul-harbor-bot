@@ -296,50 +296,98 @@ client.on('messageCreate', async (message) => {
 });
 
 // ─── TAROT READING ───────────────────────────────────────
+const TAROT_DECK = [
+  { name: 'The Fool',           emoji: '🌟', keywords: 'new beginnings, spontaneity, innocence' },
+  { name: 'The Magician',       emoji: '✨', keywords: 'willpower, resourcefulness, skill' },
+  { name: 'The High Priestess', emoji: '🌙', keywords: 'intuition, mystery, inner knowing' },
+  { name: 'The Empress',        emoji: '🌿', keywords: 'fertility, abundance, nurturing' },
+  { name: 'The Emperor',        emoji: '👑', keywords: 'authority, structure, stability' },
+  { name: 'The Hierophant',     emoji: '🕯️', keywords: 'tradition, guidance, spiritual wisdom' },
+  { name: 'The Lovers',         emoji: '💜', keywords: 'love, harmony, alignment' },
+  { name: 'The Chariot',        emoji: '⚡', keywords: 'victory, determination, willpower' },
+  { name: 'Strength',           emoji: '🦁', keywords: 'courage, patience, inner strength' },
+  { name: 'The Hermit',         emoji: '🔦', keywords: 'solitude, introspection, guidance' },
+  { name: 'Wheel of Fortune',   emoji: '🎡', keywords: 'cycles, fate, turning points' },
+  { name: 'Justice',            emoji: '⚖️', keywords: 'fairness, truth, cause and effect' },
+  { name: 'The Hanged Man',     emoji: '🌀', keywords: 'surrender, new perspective, pause' },
+  { name: 'Death',              emoji: '🌑', keywords: 'transformation, endings, transition' },
+  { name: 'Temperance',         emoji: '🌊', keywords: 'balance, patience, moderation' },
+  { name: 'The Devil',          emoji: '🔗', keywords: 'shadow self, addiction, materialism' },
+  { name: 'The Tower',          emoji: '💥', keywords: 'upheaval, chaos, revelation' },
+  { name: 'The Star',           emoji: '⭐', keywords: 'hope, renewal, serenity' },
+  { name: 'The Moon',           emoji: '🌕', keywords: 'illusion, fear, the subconscious' },
+  { name: 'The Sun',            emoji: '☀️', keywords: 'joy, success, vitality' },
+  { name: 'Judgement',          emoji: '🔔', keywords: 'reflection, reckoning, awakening' },
+  { name: 'The World',          emoji: '🌍', keywords: 'completion, integration, accomplishment' },
+  { name: 'Ace of Wands',       emoji: '🔥', keywords: 'inspiration, new energy, potential' },
+  { name: 'Two of Cups',        emoji: '💞', keywords: 'partnership, attraction, connection' },
+  { name: 'Three of Pentacles', emoji: '🏗️', keywords: 'teamwork, learning, implementation' },
+  { name: 'Four of Swords',     emoji: '😴', keywords: 'rest, recovery, contemplation' },
+  { name: 'Five of Cups',       emoji: '😢', keywords: 'loss, regret, grief' },
+  { name: 'Six of Wands',       emoji: '🏆', keywords: 'victory, recognition, progress' },
+  { name: 'Seven of Pentacles', emoji: '🌱', keywords: 'patience, investment, long-term vision' },
+  { name: 'Eight of Cups',      emoji: '🚶', keywords: 'walking away, seeking truth, transition' },
+  { name: 'Nine of Swords',     emoji: '😰', keywords: 'anxiety, worry, fear' },
+  { name: 'Ten of Pentacles',   emoji: '🏡', keywords: 'legacy, family, long-term security' },
+  { name: 'King of Cups',       emoji: '🧘', keywords: 'emotional balance, compassion, wisdom' },
+  { name: 'Queen of Wands',     emoji: '🦋', keywords: 'confidence, independence, passion' },
+  { name: 'Knight of Swords',   emoji: '⚔️', keywords: 'ambition, action, speed' },
+  { name: 'Page of Pentacles',  emoji: '📚', keywords: 'ambition, desire, diligence' },
+  { name: 'Ace of Cups',        emoji: '💧', keywords: 'new love, compassion, creativity' },
+  { name: 'Three of Swords',    emoji: '💔', keywords: 'heartbreak, sorrow, grief' },
+  { name: 'Ten of Cups',        emoji: '🌈', keywords: 'happiness, harmony, fulfillment' },
+  { name: 'Ace of Swords',      emoji: '🗡️', keywords: 'clarity, truth, breakthrough' },
+];
+
+const SPREAD_POSITIONS = {
+  3:  ['Past', 'Present', 'Future'],
+  4:  ['Mind', 'Body', 'Spirit', 'Outcome'],
+  5:  ['Past', 'Present', 'Future', 'Hopes', 'Fears'],
+  6:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Outcome'],
+  7:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Advice', 'Outcome'],
+  10: ['Present Situation','Immediate Challenge','Distant Past','Recent Past','Best Outcome','Immediate Future','Your Influence','External Influence','Hopes & Fears','Final Outcome'],
+};
+
+function shuffleDeck(count) {
+  const shuffled = [...TAROT_DECK].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
 async function handleTarot(message) {
-  const typing = await message.channel.send('🔮 *The spirits are shuffling the cards...*');
+  const content = message.content;
+  const numMatch = content.match(/(\d+)[- ]*card/i);
+  let cardCount = numMatch ? parseInt(numMatch[1]) : 3;
+  if (cardCount < 3) cardCount = 3;
+  if (cardCount > 10) cardCount = 10;
+  const validSpreads = [3, 4, 5, 6, 7, 10];
+  cardCount = validSpreads.reduce((prev, curr) => Math.abs(curr - cardCount) < Math.abs(prev - cardCount) ? curr : prev);
 
-  const cards = [
-    'The Fool','The Magician','The High Priestess','The Empress','The Emperor',
-    'The Hierophant','The Lovers','The Chariot','Strength','The Hermit',
-    'Wheel of Fortune','Justice','The Hanged Man','Death','Temperance',
-    'The Devil','The Tower','The Star','The Moon','The Sun','Judgement','The World',
-    'Ace of Wands','Two of Cups','Three of Pentacles','Four of Swords','Five of Cups',
-    'Six of Wands','Seven of Pentacles','Eight of Cups','Nine of Swords','Ten of Pentacles',
-    'King of Cups','Queen of Wands','Knight of Swords','Page of Pentacles'
-  ];
+  const positions = SPREAD_POSITIONS[cardCount];
+  const drawn = shuffleDeck(cardCount);
 
-  const past = cards[Math.floor(Math.random() * cards.length)];
-  const present = cards[Math.floor(Math.random() * cards.length)];
-  const future = cards[Math.floor(Math.random() * cards.length)];
+  const typing = await message.channel.send('🔮 *The spirits are laying out your cards...*');
 
-  const prompt = `Do a mystical 3-card tarot reading for ${message.author.username}.
-Cards drawn:
-- Past: ${past}
-- Present: ${present}  
-- Future: ${future}
-
-Give a flowing, personal, mystical reading connecting all 3 cards. Be specific and insightful. 300 words max.`;
+  const cardList = drawn.map((c, i) => `${positions[i]}: ${c.name} (${c.keywords})`).join('\n');
+  const prompt = `Do a mystical ${cardCount}-card tarot reading for ${message.author.username}.\nCards drawn:\n${cardList}\n\nGive a personal, flowing, insightful reading that connects ALL the cards together as a narrative. Reference each card's position by name. Be mystical, warm, and specific. Under 400 words.`;
 
   const reading = await askGPT([
     { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
     { role: 'user', content: prompt }
-  ], 500);
+  ], 600);
 
   await typing.delete().catch(() => {});
+  if (!reading) { message.channel.send('🔮 The spirits are clouded right now. Try again later.'); return; }
 
-  if (!reading) {
-    message.channel.send('🔮 The spirits are clouded right now. Try again later.');
-    return;
-  }
-
-  const embed = makeEmbed(
-    `🃏 Tarot Reading for ${message.author.displayName}`,
-    `**Past:** ${past}\n**Present:** ${present}\n**Future:** ${future}\n\n${reading}`
+  const headerEmbed = makeEmbed(
+    `🃏 ${cardCount}-Card Tarot Reading for ${message.author.displayName}`,
+    drawn.map((c, i) => `${c.emoji} **${positions[i]}** — ${c.name}\n*${c.keywords}*`).join('\n\n')
   );
+  message.channel.send({ embeds: [headerEmbed] });
 
-  message.channel.send({ embeds: [embed] });
+  const readingEmbed = makeEmbed('🔮 Your Reading', reading, 0x2d1b69);
+  message.channel.send({ embeds: [readingEmbed] });
 }
+
 
 // ─── GHOST STORY ─────────────────────────────────────────
 async function handleGhostStory(message) {
@@ -417,8 +465,9 @@ async function handleTrivia(message) {
 
 // ─── HOROSCOPE ───────────────────────────────────────────
 async function handleHoroscope(message) {
-  const parts = message.content.split(' ');
-  const sign = parts[1] || 'general';
+  const signs = ['aries','taurus','gemini','cancer','leo','virgo','libra','scorpio','sagittarius','capricorn','aquarius','pisces'];
+  const lower = message.content.toLowerCase();
+  const sign = signs.find(s => lower.includes(s)) || 'general';
 
   const horoscope = await askGPT([
     { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
