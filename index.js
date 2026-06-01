@@ -28,10 +28,10 @@ const CONFIG = {
   GUILD_ID: process.env.GUILD_ID,
   OWNER_ID: process.env.OWNER_ID,               // Billy's Discord user ID
   CHANNELS: {
-    GHOST_STORY:   process.env.CHANNEL_GHOST_STORY   || 'ghost-stories',
+    GHOST_STORY:   process.env.CHANNEL_GHOST_STORY   || 'soul-harbor-ghost-stories',
     TAROT:         process.env.CHANNEL_TAROT          || 'tarot-readings',
     TRIVIA:        process.env.CHANNEL_TRIVIA         || 'contests',
-    GENERAL:       process.env.CHANNEL_GENERAL        || 'soul-harbor-chat',
+    GENERAL:       process.env.CHANNEL_GENERAL        || 'soulharbor-chat',
     WELCOME:       process.env.CHANNEL_WELCOME        || 'welcome',
     ANNOUNCEMENTS: process.env.CHANNEL_ANNOUNCEMENTS  || 'announcements',
   },
@@ -200,53 +200,74 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // ── COMMANDS ──
-  if (lower.startsWith('!tarot') || lower.startsWith('!reading')) {
-    await handleTarot(message);
+  // ── NATURAL LANGUAGE INTENT DETECTION ──
+  // Responds to @mentions OR messages in the general chat channel
+  const isMentioned = message.mentions.has(client.user);
+  const isGeneralChat = message.channel.name === CONFIG.CHANNELS.GENERAL;
+  const shouldRespond = isMentioned || isGeneralChat;
+
+  if (shouldRespond) {
+    // Strip the @mention from content if present
+    const cleanContent = content.replace(/<@!?\d+>/g, '').trim();
+    const cleanLower = cleanContent.toLowerCase();
+
+    // Tarot / card reading intent
+    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|reading|draw.*card/)) {
+      await handleTarot(message);
+      return;
+    }
+
+    // Ghost story / paranormal story intent
+    if (cleanLower.match(/ghost story|ghost stories|paranormal story|horror story|scary story|tell.*story|give.*story/)) {
+      await handleGhostStory(message);
+      return;
+    }
+
+    // Trivia / contest intent
+    if (cleanLower.match(/trivia|contest|quiz|question|game|win|discount/)) {
+      await handleTrivia(message);
+      return;
+    }
+
+    // Horoscope intent
+    if (cleanLower.match(/horoscope|zodiac|astrology|sign|aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces/)) {
+      await handleHoroscope(message);
+      return;
+    }
+
+    // Spirit / entity info intent
+    const spiritMatch = cleanLower.match(/tell me about (.+)|who is (.+)|what is (.+)|info on (.+)|information about (.+)/);
+    if (spiritMatch) {
+      const spiritName = (spiritMatch[1] || spiritMatch[2] || spiritMatch[3] || spiritMatch[4] || spiritMatch[5]).trim();
+      await handleSpiritInfo(message, spiritName);
+      return;
+    }
+
+    // Badges intent
+    if (cleanLower.match(/badge|badges|my rank|my level|achievements/)) {
+      await handleBadges(message);
+      return;
+    }
+
+    // Help intent
+    if (cleanLower.match(/help|commands|what can you do|what do you do/)) {
+      await handleHelp(message);
+      return;
+    }
+
+    // Everything else — natural AI conversation
+    await handleChat(message, cleanContent);
     return;
   }
 
-  if (lower.startsWith('!ghost') || lower.startsWith('!story')) {
-    await handleGhostStory(message);
-    return;
-  }
-
-  if (lower.startsWith('!trivia') || lower.startsWith('!contest')) {
-    await handleTrivia(message);
-    return;
-  }
-
-  if (lower.startsWith('!coupon') || lower.startsWith('!discount')) {
-    await handleCoupon(message);
-    return;
-  }
-
-  if (lower.startsWith('!horoscope')) {
-    await handleHoroscope(message);
-    return;
-  }
-
-  if (lower.startsWith('!spirit ')) {
-    await handleSpiritInfo(message, content.slice(8));
-    return;
-  }
-
-  if (lower.startsWith('!help') || lower === '!commands') {
-    await handleHelp(message);
-    return;
-  }
-
-  if (lower.startsWith('!badge') || lower.startsWith('!badges')) {
-    await handleBadges(message);
-    return;
-  }
-
-  // ── SOUL HARBOR CHAT CHANNEL - AI conversation ──
-  const channel = message.channel;
-  if (channel.name === CONFIG.CHANNELS.GENERAL || message.mentions.has(client.user)) {
-    await handleChat(message, content);
-    return;
-  }
+  // Also allow old ! commands as fallback for power users
+  if (lower.startsWith('!tarot') || lower.startsWith('!reading')) { await handleTarot(message); return; }
+  if (lower.startsWith('!ghost') || lower.startsWith('!story')) { await handleGhostStory(message); return; }
+  if (lower.startsWith('!trivia') || lower.startsWith('!contest')) { await handleTrivia(message); return; }
+  if (lower.startsWith('!horoscope')) { await handleHoroscope(message); return; }
+  if (lower.startsWith('!spirit ')) { await handleSpiritInfo(message, content.slice(8)); return; }
+  if (lower.startsWith('!help') || lower === '!commands') { await handleHelp(message); return; }
+  if (lower.startsWith('!badge') || lower.startsWith('!badges')) { await handleBadges(message); return; }
 
   // ── TRIVIA ANSWER CHECK ──
   if (triviaActive.has(message.channel.id)) {
