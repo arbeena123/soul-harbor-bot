@@ -189,15 +189,24 @@ client.on('messageCreate', async (message) => {
       message.channel.send(`⚠️ ${message.author}, this is your **final warning (2/3)**. Next violation will be reported.`);
     } else if (count >= 3) {
       message.channel.send(`🚫 ${message.author} has received 3 warnings for inappropriate language.`);
-      // DM the owner
+      // DM Billy (owner) + all Moderators
+      const alertMsg = `🚨 **Moderation Alert**\n` +
+        `User **${message.author.tag}** has received 3 warnings in **${message.guild.name}**.\n` +
+        `Last message: "${content}"\n\n` +
+        `What would you like to do? (kick or ban them from the server)`;
+
+      // DM owner
       const owner = await client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
-      if (owner) {
-        owner.send(
-          `🚨 **Moderation Alert**\n` +
-          `User **${message.author.tag}** (${userId}) has received 3 warnings in **${message.guild.name}**.\n` +
-          `Last message: "${content}"\n\n` +
-          `Do you want to kick or ban them? Reply with their username to take action.`
-        );
+      if (owner) owner.send(alertMsg).catch(() => {});
+
+      // DM all members with 'mod' role
+      const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
+      if (modRole) {
+        modRole.members.forEach(async (member) => {
+          if (member.id !== CONFIG.OWNER_ID) { // avoid double DM to Billy if he has mod role
+            member.send(alertMsg).catch(() => {});
+          }
+        });
       }
       warnCount.set(userId, 0);
     }
