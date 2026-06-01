@@ -359,8 +359,13 @@ function shuffleDeck(count) {
 
 async function handleTarot(message) {
   const content = message.content;
+  // Detect card count from digits OR written words
+  const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 'a':1 };
   const numMatch = content.match(/(\d+)[- ]*card/i);
-  let cardCount = numMatch ? parseInt(numMatch[1]) : 3;
+  const wordMatch = content.match(/(one|two|three|four|five|six|seven|eight|nine|ten)[- ]*card/i);
+  let cardCount = 3;
+  if (numMatch) cardCount = parseInt(numMatch[1]);
+  else if (wordMatch) cardCount = wordNums[wordMatch[1].toLowerCase()] || 3;
   if (cardCount < 3) cardCount = 3;
   if (cardCount > 10) cardCount = 10;
   const validSpreads = [3, 4, 5, 6, 7, 10];
@@ -503,10 +508,7 @@ async function handleSpiritInfo(message, spiritName) {
 // ─── GENERAL CHAT ────────────────────────────────────────
 async function handleChat(message, userInput) {
   const reply = await askGPT([
-    {
-      role: 'system',
-      content: SPIRIT_SYSTEM_PROMPT + '\n\nIf the message contains obvious spelling mistakes, gently note the correct spelling at the very end of your response like: *(Just a note: it is spelled correctly as X)*. Only for clear typos, not slang. Keep it friendly and brief.'
-    },
+    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
     { role: 'user', content: userInput }
   ], 350);
 
