@@ -197,17 +197,45 @@ client.on('messageCreate', async (message) => {
       message.channel.send(`🚫 ${message.author} has received 3 warnings for inappropriate language.`);
       // DM Billy (owner) + all Moderators
       const alertMsg = `🚨 **Moderation Alert** — **${message.guild.name}**\n` +
-        `User **${message.author.tag}** has received 3 warnings.\n` +
+        `User **${message.author.tag}** has received 3 warnings for inappropriate language.\n` +
         `Last message: "${message.content}"\n\n` +
         `Do you want to kick or ban this user?`;
 
-      // DM owner directly via user fetch (most reliable method)
+      console.log('Attempting to DM owner ID:', CONFIG.OWNER_ID);
+
+      // Method 1: fetch from guild members
       try {
-        const ownerUser = await client.users.fetch(CONFIG.OWNER_ID, { force: true });
-        const dmChannel = await ownerUser.createDM();
-        await dmChannel.send(alertMsg);
-        console.log('✅ Moderation DM sent to owner');
-      } catch(e) { console.log('❌ Could not DM owner:', e.message); }
+        const guild = message.guild;
+        await guild.members.fetch();
+        const ownerMember = guild.members.cache.get(CONFIG.OWNER_ID);
+        if (ownerMember) {
+          await ownerMember.send(alertMsg);
+          console.log('✅ Moderation DM sent via guild member');
+        } else {
+          // Method 2: fetch user directly
+          const ownerUser = await client.users.fetch(CONFIG.OWNER_ID);
+          await ownerUser.send(alertMsg);
+          console.log('✅ Moderation DM sent via user fetch');
+        }
+      } catch(e) {
+        console.log('❌ Could not DM owner:', e.message);
+        // Method 3: post in admin channel as fallback
+        const adminChannel = message.guild.channels.cache.find(c => 
+          c.name.includes('admin') && c.type === 0);
+        if (adminChannel) {
+          adminChannel.send(`🚨 <@${CONFIG.OWNER_ID}> **Moderation Alert:** ${message.author.tag} received 3 warnings. Last message: "${message.content}"`);
+        }
+      }
+
+      // DM all mods too
+      const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
+      if (modRole) {
+        modRole.members.forEach(async (member) => {
+          if (member.id !== CONFIG.OWNER_ID) {
+            member.send(alertMsg).catch(() => {});
+          }
+        });
+      }
 
       // DM all members with 'mod' role
       const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
@@ -375,7 +403,11 @@ const SPREAD_POSITIONS = {
   5:  ['Past', 'Present', 'Future', 'Hopes', 'Fears'],
   6:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Outcome'],
   7:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Advice', 'Outcome'],
+  8:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Hidden Influence', 'Advice', 'Outcome'],
+  9:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Hidden Influence', 'Advice', 'Hopes', 'Outcome'],
   10: ['Present Situation','Immediate Challenge','Distant Past','Recent Past','Best Outcome','Immediate Future','Your Influence','External Influence','Hopes & Fears','Final Outcome'],
+  12: ['Past','Present','Future','Foundation','Challenge','Hidden Influence','Advice','External Energy','Inner Strength','Hopes','Fears','Final Outcome'],
+  14: ['Distant Past','Recent Past','Present','Near Future','Far Future','Foundation','Challenge','Hidden Influence','Your Influence','External Influence','Advice','Inner Strength','Hopes & Fears','Final Outcome'],
 };
 
 function shuffleDeck(count) {
@@ -396,8 +428,8 @@ async function handleTarot(message) {
   else if (numMatch) cardCount = parseInt(numMatch[1]);
   else if (wordMatch) cardCount = wordNums[wordMatch[1].toLowerCase()] || 3;
   if (cardCount < 3) cardCount = 3;
-  if (cardCount > 10) cardCount = 10;
-  const validSpreads = [3, 4, 5, 6, 7, 10];
+  if (cardCount > 14) cardCount = 14;
+  const validSpreads = [3, 4, 5, 6, 7, 10, 12, 14];
   cardCount = validSpreads.reduce((prev, curr) => Math.abs(curr - cardCount) < Math.abs(prev - cardCount) ? curr : prev);
 
   const positions = SPREAD_POSITIONS[cardCount];
