@@ -280,6 +280,7 @@ client.on('messageCreate', async (message) => {
   if (lower.startsWith('!horoscope')) { await handleHoroscope(message); return; }
   if (lower.startsWith('!spirit ')) { await handleSpiritInfo(message, content.slice(8)); return; }
   if (lower.startsWith('!help') || lower === '!commands') { await handleHelp(message); return; }
+  if (lower === '!setup') { await handleSetup(message); return; }
   if (lower.startsWith('!badge') || lower.startsWith('!badges')) { await handleBadges(message); return; }
 
   // ── TRIVIA ANSWER CHECK ──
@@ -656,4 +657,121 @@ function scheduleDailyTasks() {
 }
 
 // ─── LOGIN ───────────────────────────────────────────────
+
+// ─── ONE-TIME SETUP COMMAND ───────────────────────────────
+const CATEGORY_RENAMES = {
+  'private zone':          '🔒・PRIVATE ZONE',
+  'important':             '📋・WELCOME & RULES',
+  'main':                  '💬・COMMUNITY',
+  'the pagan shop online': '🏪・THE PAGAN SHOP',
+  'conjures list':         '🧿・CONJURES LIST',
+  'affiliates':            '🤝・AFFILIATES',
+};
+
+const CHANNEL_RENAMES = {
+  'admin-and-mod-rules':            '🛡️・admin-and-mod-rules',
+  'admin-and-mod-chat':             '💬・admin-and-mod-chat',
+  'bot-commands':                   '🤖・bot-commands',
+  'introductions':                  '👋・introductions',
+  'server-rules':                   '📜・server-rules',
+  'server-announcements':           '📣・server-announcements',
+  'soulharbor-chat':                '🔮・soulharbor-chat',
+  'soul-harbor-ghost-stories':      '👻・soul-harbor-ghost-stories',
+  'shop-links':                     '🛍️・shop-links',
+  'new-custom-and-pre-conjures':    '🌟・new-custom-and-pre-conjures',
+  'shop-reviews':                   '⭐・shop-reviews',
+  'events-and-sales':               '📅・events-and-sales',
+  'about-billy':                    '🧿・about-billy',
+  'paganshop-chat':                 '🗣️・paganshop-chat',
+  'the-gallery':                    '🖼️・the-gallery',
+  'music-zone':                     '🎵・music-zone',
+  'spirit-companion-movie-night':   '🎬・spirit-companion-movie-night',
+  'links-and-videos':               '🔗・links-and-videos',
+  'excitement-and-gratitude':       '🙏・excitement-and-gratitude',
+  'vent-area':                      '💭・vent-area',
+  'nsfw-section':                   '🔞・nsfw-section',
+  'billys-education':               '📖・billys-education',
+  'meta-blog':                      '📝・meta-blog',
+  'spiritboard-shop':               '🌐・spiritboard-shop',
+  'spiritboard-shop-reviews':       '⭐・spiritboard-shop-reviews',
+  'spirit-experiences-and-stories': '✨・spirit-experiences-and-stories',
+  'just-chat-paganshop':            '💬・just-chat-paganshop',
+  'angel-conjures':                 '👼・angel-conjures',
+  'asia-conjures':                  '🌏・asia-conjures',
+  'creature-conjures':              '🐉・creature-conjures',
+  'demon-conjures':                 '👿・demon-conjures',
+  'djinn-conjures':                 '🧞・djinn-conjures',
+  'dragon-conjures':                '🐲・dragon-conjures',
+  'elf-conjures':                   '🧝・elf-conjures',
+  'fae-conjures':                   '🧚・fae-conjures',
+  'human-conjures':                 '👤・human-conjures',
+  'hybrid-conjures':                '🔀・hybrid-conjures',
+  'immortal-conjures':              '♾️・immortal-conjures',
+  'sexual-conjures':                '🔥・sexual-conjures',
+  'vampire-conjures':               '🧛・vampire-conjures',
+  'other-conjures':                 '✨・other-conjures',
+  'morningstars-metamysticals':     '⭐・morningstars-metamysticals',
+  'dark-kingdom-magickals':         '🌑・dark-kingdom-magickals',
+  'mystic-den':                     '🔮・mystic-den',
+  'affiliates-review':              '📝・affiliates-review',
+};
+
+async function handleSetup(message) {
+  if (message.author.id !== CONFIG.OWNER_ID) {
+    message.reply('❌ Only Billy can run this command.');
+    return;
+  }
+  const msg = await message.reply('⏳ Starting channel organization... this will take 2-3 minutes.');
+  const guild = message.guild;
+  await guild.channels.fetch();
+  let renamed = 0;
+  let errors = 0;
+
+  // Create Soul Harbor category if missing
+  const existingCats = guild.channels.cache.filter(c => c.type === 4);
+  const hasSoulHarborCat = existingCats.some(c => c.name.toLowerCase().includes('soul harbor'));
+  if (!hasSoulHarborCat) {
+    const soulHarborCat = await guild.channels.create({ name: '🔮・SOUL HARBOR', type: 4 }).catch(() => null);
+    if (soulHarborCat) {
+      const chats = ['soulharbor-chat', 'soul-harbor-ghost-stories'];
+      for (const chName of chats) {
+        const ch = guild.channels.cache.find(c => c.name === chName);
+        if (ch) await ch.setParent(soulHarborCat.id).catch(() => {});
+      }
+    }
+  }
+
+  // Rename categories
+  for (const channel of guild.channels.cache.values()) {
+    if (channel.type === 4) {
+      const key = channel.name.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+      const newName = CATEGORY_RENAMES[key];
+      if (newName && channel.name !== newName) {
+        try {
+          await channel.setName(newName);
+          renamed++;
+          await new Promise(r => setTimeout(r, 1200));
+        } catch(e) { errors++; }
+      }
+    }
+  }
+
+  // Rename text channels
+  for (const channel of guild.channels.cache.values()) {
+    if (channel.type === 0 || channel.type === 2) {
+      const cleanName = channel.name.replace(/[^a-z0-9-]/g, '').trim();
+      const newName = CHANNEL_RENAMES[cleanName];
+      if (newName && channel.name !== newName) {
+        try {
+          await channel.setName(newName);
+          renamed++;
+          await new Promise(r => setTimeout(r, 1500));
+        } catch(e) { errors++; }
+      }
+    }
+  }
+
+  msg.edit(\`✅ Done! Renamed **\${renamed}** channels and categories. Errors: \${errors}\n\nThe server is now organized! 🔮\`);
+}
+
 client.login(process.env.DISCORD_TOKEN);
