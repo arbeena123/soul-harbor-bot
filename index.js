@@ -201,11 +201,13 @@ client.on('messageCreate', async (message) => {
         `Last message: "${message.content}"\n\n` +
         `Do you want to kick or ban this user?`;
 
-      // DM owner
+      // DM owner directly via user fetch (most reliable method)
       try {
-        const ownerMember = await message.guild.members.fetch(CONFIG.OWNER_ID);
-        if (ownerMember) await ownerMember.send(alertMsg);
-      } catch(e) { console.log('Could not DM owner:', e.message); }
+        const ownerUser = await client.users.fetch(CONFIG.OWNER_ID, { force: true });
+        const dmChannel = await ownerUser.createDM();
+        await dmChannel.send(alertMsg);
+        console.log('✅ Moderation DM sent to owner');
+      } catch(e) { console.log('❌ Could not DM owner:', e.message); }
 
       // DM all members with 'mod' role
       const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
@@ -224,12 +226,14 @@ client.on('messageCreate', async (message) => {
   // ── NATURAL LANGUAGE INTENT DETECTION ──
   const isMentioned = message.mentions.has(client.user);
   const isDM = !message.guild; // private DM
-  const isGeneralChat = message.channel.name && (
-    message.channel.name.includes('soulharbor-chat') || 
-    message.channel.name.includes('soul-harbor-chat') ||
-    message.channel.name === CONFIG.CHANNELS.GENERAL
-  );
+  // ONLY respond in soulharbor-chat channel or when @mentioned or in DMs
+  // Strip emojis from channel name for comparison
+  const rawChannelName = message.channel.name ? message.channel.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() : '';
+  const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName === 'soulharbor-chat' || rawChannelName.includes('soulharborchat');
+  // IMPORTANT: Only respond if @mentioned OR in soulharbor-chat OR in DMs
   const shouldRespond = isMentioned || isGeneralChat || isDM;
+  // Do NOT respond to regular chat in other channels unless @mentioned
+  if (!shouldRespond) return;
 
   if (shouldRespond) {
     // Strip the @mention from content if present
@@ -237,7 +241,7 @@ client.on('messageCreate', async (message) => {
     const cleanLower = cleanContent.toLowerCase();
 
     // Tarot / card reading intent
-    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|draw.*card|\d+.card|five.card|six.card|seven.card|three.card|four.card/)) {
+    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|draw.*card|\d+.card|one.card|two.card|three.card|four.card|five.card|six.card|seven.card|eight.card|nine.card|ten.card|reading/)) {
       await handleTarot(message);
       return;
     }
@@ -382,11 +386,14 @@ function shuffleDeck(count) {
 async function handleTarot(message) {
   const content = message.content;
   // Detect card count from digits OR written words
-  const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 'a':1 };
+  const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 'a':3 };
   const numMatch = content.match(/(\d+)[- ]*card/i);
   const wordMatch = content.match(/(one|two|three|four|five|six|seven|eight|nine|ten)[- ]*card/i);
+  // Also check for digit immediately followed by card
+  const digitMatch = content.match(/(\d+)[\s-]*card/i);
   let cardCount = 3;
-  if (numMatch) cardCount = parseInt(numMatch[1]);
+  if (digitMatch) cardCount = parseInt(digitMatch[1]);
+  else if (numMatch) cardCount = parseInt(numMatch[1]);
   else if (wordMatch) cardCount = wordNums[wordMatch[1].toLowerCase()] || 3;
   if (cardCount < 3) cardCount = 3;
   if (cardCount > 10) cardCount = 10;
