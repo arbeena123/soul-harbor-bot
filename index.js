@@ -228,9 +228,9 @@ client.on('messageCreate', async (message) => {
       }
 
       // DM all mods too
-      const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
-      if (modRole) {
-        modRole.members.forEach(async (member) => {
+      const modRoleForDM = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
+      if (modRoleForDM) {
+        modRoleForDM.members.forEach(async (member) => {
           if (member.id !== CONFIG.OWNER_ID) {
             member.send(alertMsg).catch(() => {});
           }
