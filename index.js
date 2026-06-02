@@ -9,7 +9,11 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessageReactions,
-  ]
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.DirectMessageTyping,
+    GatewayIntentBits.DirectMessageReactions,
+  ],
+  partials: ['CHANNEL', 'MESSAGE']
 });
 
 // Lazy init — Railway injects env vars before login, but after module load
