@@ -771,7 +771,9 @@ async function handleSetup(message) {
     }
   }
 
-  msg.edit(\`✅ Done! Renamed **\${renamed}** channels and categories. Errors: \${errors}\n\nThe server is now organized! 🔮\`);
+  msg.edit(`✅ Done! Renamed **${renamed}** channels and categories. Errors: ${errors}
+
+The server is now organized! 🔮`);
 }
 
 client.login(process.env.DISCORD_TOKEN);
