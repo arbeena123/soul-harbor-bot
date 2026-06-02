@@ -2,6 +2,8 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder
 const OpenAI = require('openai');
 const cron = require('node-cron');
 
+const { Partials } = require('discord.js');
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -13,7 +15,7 @@ const client = new Client({
     GatewayIntentBits.DirectMessageTyping,
     GatewayIntentBits.DirectMessageReactions,
   ],
-  partials: ['CHANNEL', 'MESSAGE']
+  partials: [Partials.Channel, Partials.Message, Partials.User]
 });
 
 // Lazy init — Railway injects env vars before login, but after module load
