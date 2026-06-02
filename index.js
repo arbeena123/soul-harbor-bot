@@ -132,6 +132,12 @@ client.once('ready', async () => {
 
 // ─── WELCOME NEW MEMBERS ─────────────────────────────────
 client.on('guildMemberAdd', async (member) => {
+  // Auto-assign Member role
+  const memberRole = member.guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
+  if (memberRole) {
+    member.roles.add(memberRole).catch(() => {});
+  }
+
   const guild = member.guild;
 
   // Assign Spirit Seeker role
@@ -190,14 +196,16 @@ client.on('messageCreate', async (message) => {
     } else if (count >= 3) {
       message.channel.send(`🚫 ${message.author} has received 3 warnings for inappropriate language.`);
       // DM Billy (owner) + all Moderators
-      const alertMsg = `🚨 **Moderation Alert**\n` +
-        `User **${message.author.tag}** has received 3 warnings in **${message.guild.name}**.\n` +
-        `Last message: "${content}"\n\n` +
-        `What would you like to do? (kick or ban them from the server)`;
+      const alertMsg = `🚨 **Moderation Alert** — **${message.guild.name}**\n` +
+        `User **${message.author.tag}** has received 3 warnings.\n` +
+        `Last message: "${message.content}"\n\n` +
+        `Do you want to kick or ban this user?`;
 
       // DM owner
-      const owner = await client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
-      if (owner) owner.send(alertMsg).catch(() => {});
+      try {
+        const ownerMember = await message.guild.members.fetch(CONFIG.OWNER_ID);
+        if (ownerMember) await ownerMember.send(alertMsg);
+      } catch(e) { console.log('Could not DM owner:', e.message); }
 
       // DM all members with 'mod' role
       const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
@@ -214,10 +222,14 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── NATURAL LANGUAGE INTENT DETECTION ──
-  // Responds to @mentions OR messages in the general chat channel
   const isMentioned = message.mentions.has(client.user);
-  const isGeneralChat = message.channel.name === CONFIG.CHANNELS.GENERAL;
-  const shouldRespond = isMentioned || isGeneralChat;
+  const isDM = !message.guild; // private DM
+  const isGeneralChat = message.channel.name && (
+    message.channel.name.includes('soulharbor-chat') || 
+    message.channel.name.includes('soul-harbor-chat') ||
+    message.channel.name === CONFIG.CHANNELS.GENERAL
+  );
+  const shouldRespond = isMentioned || isGeneralChat || isDM;
 
   if (shouldRespond) {
     // Strip the @mention from content if present
@@ -225,7 +237,7 @@ client.on('messageCreate', async (message) => {
     const cleanLower = cleanContent.toLowerCase();
 
     // Tarot / card reading intent
-    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|reading|draw.*card/)) {
+    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|draw.*card|\d+.card|five.card|six.card|seven.card|three.card|four.card/)) {
       await handleTarot(message);
       return;
     }
