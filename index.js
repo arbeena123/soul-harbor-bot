@@ -266,6 +266,8 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── ADMIN COMMANDS (run from any channel) ──
+  if (lower === '!setup') { await handleSetup(message); return; }
+  if (lower === '!help' || lower === '!commands') { await handleHelp(message); return; }
 
   // ── NATURAL LANGUAGE INTENT DETECTION ──
   const isMentioned = message.mentions.has(client.user);
