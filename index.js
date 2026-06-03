@@ -728,62 +728,102 @@ const CATEGORY_RENAMES = {
   'private zone':          '🔒・PRIVATE ZONE',
   'important':             '📋・WELCOME & RULES',
   'main':                  '💬・COMMUNITY',
+  'main channels':         '💬・MAIN CHANNELS',
   'the pagan shop online': '🏪・THE PAGAN SHOP',
+  'the pagan shop':        '🏪・THE PAGAN SHOP',
   'conjures list':         '🧿・CONJURES LIST',
   'affiliates':            '🤝・AFFILIATES',
+  'soul harbor':           '🔮・SOUL HARBOR',
+  'education':             '📚・EDUCATION',
+  'community':             '💬・COMMUNITY',
+  'shop':                  '🏪・SHOP',
+  'bot':                   '🤖・BOT',
+  'staff':                 '🛡️・STAFF',
+  'events':                '📅・EVENTS',
+  'conjures':              '🧿・CONJURES',
 };
 
-const CHANNEL_RENAMES = {
-  'admin-and-mod-rules':            '🛡️・admin-and-mod-rules',
-  'admin-and-mod-chat':             '💬・admin-and-mod-chat',
-  'bot-commands':                   '🤖・bot-commands',
-  'introductions':                  '👋・introductions',
-  'server-rules':                   '📜・server-rules',
-  'server-announcements':           '📣・server-announcements',
-  'soulharbor-chat':                '🔮・soulharbor-chat',
-  'soul-harbor-ghost-stories':      '👻・soul-harbor-ghost-stories',
-  'shop-links':                     '🛍️・shop-links',
-  'new-custom-and-pre-conjures':    '🌟・new-custom-and-pre-conjures',
-  'shop-reviews':                   '⭐・shop-reviews',
-  'events-and-sales':               '📅・events-and-sales',
-  'about-billy':                    '🧿・about-billy',
-  'paganshop-chat':                 '🗣️・paganshop-chat',
-  'the-gallery':                    '🖼️・the-gallery',
-  'music-zone':                     '🎵・music-zone',
-  'spirit-companion-movie-night':   '🎬・spirit-companion-movie-night',
-  'links-and-videos':               '🔗・links-and-videos',
-  'excitement-and-gratitude':       '🙏・excitement-and-gratitude',
-  'vent-area':                      '💭・vent-area',
-  'nsfw-section':                   '🔞・nsfw-section',
-  'billys-education':               '📖・billys-education',
-  'meta-blog':                      '📝・meta-blog',
-  'spiritboard-shop':               '🌐・spiritboard-shop',
-  'spiritboard-shop-reviews':       '⭐・spiritboard-shop-reviews',
-  'spirit-experiences-and-stories': '✨・spirit-experiences-and-stories',
-  'just-chat-paganshop':            '💬・just-chat-paganshop',
-  'angel-conjures':                 '👼・angel-conjures',
-  'asia-conjures':                  '🌏・asia-conjures',
-  'creature-conjures':              '🐉・creature-conjures',
-  'demon-conjures':                 '👿・demon-conjures',
-  'djinn-conjures':                 '🧞・djinn-conjures',
-  'dragon-conjures':                '🐲・dragon-conjures',
-  'elf-conjures':                   '🧝・elf-conjures',
-  'fae-conjures':                   '🧚・fae-conjures',
-  'human-conjures':                 '👤・human-conjures',
-  'hybrid-conjures':                '🔀・hybrid-conjures',
-  'immortal-conjures':              '♾️・immortal-conjures',
-  'sexual-conjures':                '🔥・sexual-conjures',
-  'vampire-conjures':               '🧛・vampire-conjures',
-  'other-conjures':                 '✨・other-conjures',
-  'morningstars-metamysticals':     '⭐・morningstars-metamysticals',
-  'dark-kingdom-magickals':         '🌑・dark-kingdom-magickals',
-  'mystic-den':                     '🔮・mystic-den',
-  'affiliates-review':              '📝・affiliates-review',
-};
+function getSmartEmoji(channelName) {
+  const n = channelName.toLowerCase();
+  const rules = [
+    [/admin|mod.rules|staff.rules/, '🛡️'],
+    [/mod.chat|staff.chat|admin.chat/, '💬'],
+    [/bot.command|commands/, '🤖'],
+    [/intro|welcome/, '👋'],
+    [/rules/, '📜'],
+    [/announc/, '📣'],
+    [/soulharbor|soul.harbor.chat|harbor.chat/, '🔮'],
+    [/ghost/, '👻'],
+    [/tarot/, '🃏'],
+    [/trivia|contest/, '🏆'],
+    [/horoscope|astro/, '🌙'],
+    [/shop.link|store.link/, '🛍️'],
+    [/new.custom|pre.conjure|new.listing/, '🌟'],
+    [/review/, '⭐'],
+    [/event|sale|discount/, '📅'],
+    [/about.billy|about.us/, '🧿'],
+    [/spiritboard/, '🌐'],
+    [/general|chat|lounge/, '🗣️'],
+    [/gallery|photo|image/, '🖼️'],
+    [/music/, '🎵'],
+    [/movie|film|watch/, '🎬'],
+    [/link|video|media/, '🔗'],
+    [/gratitude|excite|celebrat/, '🙏'],
+    [/vent|rant/, '💭'],
+    [/nsfw|adult/, '🔞'],
+    [/education|learn|class|lesson/, '📖'],
+    [/blog|post|article/, '📝'],
+    [/experience|story|stories|testimonial/, '✨'],
+    [/auction/, '🔨'],
+    [/angel/, '👼'],
+    [/asia|asian|eastern/, '🌏'],
+    [/creature|beast|monster/, '🐉'],
+    [/demon|dark.arts/, '👿'],
+    [/djinn|genie|jinn/, '🧞'],
+    [/dragon/, '🐲'],
+    [/elf|elven/, '🧝'],
+    [/fae|fairy|faerie/, '🧚'],
+    [/human|warlock|witch/, '👤'],
+    [/hybrid|mix/, '🔀'],
+    [/immortal|eternal/, '♾️'],
+    [/sexual|romance|love/, '🔥'],
+    [/vampire|vamp/, '🧛'],
+    [/xp|level|rank|badge|achievement/, '🏅'],
+    [/leaderboard|top/, '🏆'],
+    [/reward|point|earn/, '💎'],
+    [/quest|mission|challenge/, '⚔️'],
+    [/market|store|buy|sell/, '🛒'],
+    [/conjure|custom/, '✨'],
+    [/affiliat|partner|collab/, '🤝'],
+    [/feedback|suggest/, '💡'],
+    [/help|support|ticket/, '🆘'],
+    [/voice|vc|audio/, '🎙️'],
+    [/game|gaming/, '🎮'],
+    [/art|creative|design/, '🎨'],
+    [/spiritual|sacred|ritual/, '🕯️'],
+    [/moon|lunar/, '🌕'],
+    [/crystal|gem|stone/, '💎'],
+    [/spell|magic|magick/, '✨'],
+    [/divination|oracle/, '🔮'],
+    [/healing|wellness/, '💚'],
+    [/protection|shield/, '🛡️'],
+    [/abundance|prosperity|wealth/, '💰'],
+    [/spirit.companion|companion/, '💜'],
+  ];
+  for (const [pattern, emoji] of rules) {
+    if (pattern.test(n)) return emoji;
+  }
+  return '✨';
+}
+
+const CHANNEL_RENAMES = {};
+
+
 
 async function handleSetup(message) {
-  if (message.author.id !== CONFIG.OWNER_ID) {
-    message.reply('❌ Only Billy can run this command.');
+  const allowedIds = [CONFIG.OWNER_ID, '1511088381013262560']; // Billy + Arbeena
+  if (!allowedIds.includes(message.author.id)) {
+    message.reply('❌ Only admins can run this command.');
     return;
   }
   const msg = await message.reply('⏳ Starting channel organization... this will take 2-3 minutes.');
@@ -821,18 +861,18 @@ async function handleSetup(message) {
     }
   }
 
-  // Rename text channels
+  // Smart emoji renaming for ALL channels without emojis
   for (const channel of guild.channels.cache.values()) {
     if (channel.type === 0 || channel.type === 2) {
-      const cleanName = channel.name.replace(/[^a-z0-9-]/g, '').trim();
-      const newName = CHANNEL_RENAMES[cleanName];
-      if (newName && channel.name !== newName) {
-        try {
-          await channel.setName(newName);
-          renamed++;
-          await new Promise(r => setTimeout(r, 1500));
-        } catch(e) { errors++; }
-      }
+      const firstCode = channel.name.codePointAt(0);
+      if (firstCode > 127) continue; // already has emoji
+      const emoji = getSmartEmoji(channel.name);
+      const newName = emoji + '・' + channel.name;
+      try {
+        await channel.setName(newName);
+        renamed++;
+        await new Promise(r => setTimeout(r, 1500));
+      } catch(e) { errors++; }
     }
   }
 
