@@ -38,7 +38,7 @@ const CONFIG = {
     TAROT:         process.env.CHANNEL_TAROT          || 'tarot-readings',
     TRIVIA:        process.env.CHANNEL_TRIVIA         || 'contests',
     GENERAL:       process.env.CHANNEL_GENERAL        || 'soulharbor-chat',
-    WELCOME:       process.env.CHANNEL_WELCOME        || 'welcome',
+    WELCOME:       process.env.CHANNEL_WELCOME        || 'introductions',
     ANNOUNCEMENTS: process.env.CHANNEL_ANNOUNCEMENTS  || 'announcements',
   },
   ROLES: {
@@ -88,7 +88,14 @@ function generateCouponCode() {
 }
 
 function getChannel(guild, name) {
-  return guild.channels.cache.find(c => c.name === name || c.name === name.toLowerCase().replace(/ /g,'-'));
+  const cleanName = name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
+  return guild.channels.cache.find(c => 
+    c.type === 0 && (
+      c.name === name || 
+      c.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() === cleanName ||
+      c.name.toLowerCase().includes(cleanName)
+    )
+  );
 }
 
 async function askGPT(messages, max_tokens = 400) {
@@ -132,6 +139,7 @@ console.log('DISCORD_TOKEN:', process.env.DISCORD_TOKEN ? '✅ set' : '❌ missi
 // ─── BOT READY ───────────────────────────────────────────
 client.once('ready', async () => {
   console.log(`✅ Soul Harbor is online as ${client.user.tag}`);
+  console.log('DM intents active - DirectMessages:', client.options.intents.has(GatewayIntentBits.DirectMessages));
   client.user.setActivity('🔮 Watching over the spirits...', { type: 3 });
   scheduleDailyTasks();
 });
