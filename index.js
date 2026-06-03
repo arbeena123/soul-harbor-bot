@@ -351,14 +351,26 @@ client.on('messageCreate', async (message) => {
     if (!trivia.winnerId && lower.includes(trivia.answer.toLowerCase())) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
+      
+      // DM the code PRIVATELY to winner only
+      try {
+        await message.author.send(
+          `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**\n\n` +
+          `Your exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n` +
+          `# \`${code}\`\n\n` +
+          `Use it at **thepaganshoponline.com** at checkout.\n` +
+          `Valid for 7 days. Keep this code private! 🛍️🔮`
+        );
+      } catch(e) {
+        console.log('Could not DM winner:', e.message);
+      }
+      
+      // Post public announcement WITHOUT the code
       const embed = makeEmbed(
         '🏆 We Have a Winner!',
-        `🎉 Congratulations ${message.author}!\n\n` +
-        `You answered correctly!\n\n` +
-        `Your **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n` +
-        `# \`${code}\`\n\n` +
-        `Use it at **thepaganshoponline.com** at checkout!\n` +
-        `Valid for 7 days. 🛍️`,
+        `🎉 Congratulations ${message.author}! You answered correctly!\n\n` +
+        `Your discount code has been sent to your **DMs** — check your private messages! 🔮\n\n` +
+        `Thanks everyone for playing! Next contest coming soon. 🏆`,
         0xFFD700
       );
       message.channel.send({ embeds: [embed] });
@@ -535,7 +547,7 @@ async function handleTrivia(message) {
     '🏆 Spirit Trivia Contest!',
     `**${question}**\n\n` +
     `First correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n` +
-    `⏱️ You have 2 minutes!`,
+    `⏱️ You have 5 minutes!`,
     0xFFD700
   );
 
@@ -548,7 +560,7 @@ async function handleTrivia(message) {
       const expireEmbed = makeEmbed('⏱️ Time\'s Up!', `Nobody answered in time! The answer was: **${answer}**\n\nBetter luck next time! 🔮`);
       message.channel.send({ embeds: [expireEmbed] });
     }
-  }, 120000);
+  }, 300000); // 5 minutes
 }
 
 // ─── HOROSCOPE ───────────────────────────────────────────
@@ -649,7 +661,7 @@ function scheduleDailyTasks() {
   if (!guild) return;
 
   // Daily ghost story — 8pm every day
-  cron.schedule('0 20 * * *', async () => {
+  cron.schedule('0 1 * * *', async () => { // 8pm EST
     const channel = getChannel(guild, CONFIG.CHANNELS.GHOST_STORY);
     if (!channel) return;
 
@@ -665,7 +677,7 @@ function scheduleDailyTasks() {
   });
 
   // Daily tarot card of the day — 9am every day
-  cron.schedule('0 9 * * *', async () => {
+  cron.schedule('0 14 * * *', async () => { // 9am EST
     const channel = getChannel(guild, CONFIG.CHANNELS.TAROT);
     if (!channel) return;
 
@@ -684,7 +696,7 @@ function scheduleDailyTasks() {
   });
 
   // Daily trivia contest — 6pm every day
-  cron.schedule('0 18 * * *', async () => {
+  cron.schedule('0 23 * * *', async () => { // 6pm EST
     const channel = getChannel(guild, CONFIG.CHANNELS.TRIVIA);
     if (!channel) return;
 
@@ -708,7 +720,7 @@ function scheduleDailyTasks() {
       '🏆 Daily Spirit Trivia!',
       `**${question}**\n\n` +
       `First correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n` +
-      `⏱️ You have 2 minutes!`,
+      `⏱️ You have 5 minutes!`,
       0xFFD700
     );
     channel.send({ embeds: [embed] });
@@ -719,7 +731,7 @@ function scheduleDailyTasks() {
         const expEmbed = makeEmbed('⏱️ Time\'s Up!', `Nobody answered! The answer was: **${answer}**\n\nNew contest tomorrow! 🔮`);
         channel.send({ embeds: [expEmbed] });
       }
-    }, 120000);
+    }, 300000); // 5 minutes
   });
 
   console.log('✅ Daily tasks scheduled');
@@ -884,6 +896,21 @@ async function handleSetup(message) {
 
 The server is now organized! 🔮`);
 }
+
+// ── AUTO EMOJI ON NEW CHANNEL CREATION ──────────────────
+client.on('channelCreate', async (channel) => {
+  if (channel.type !== 0 && channel.type !== 2) return; // text or voice only
+  const firstCode = channel.name.codePointAt(0);
+  if (firstCode > 127) return; // already has emoji
+  try {
+    const emoji = getSmartEmoji(channel.name);
+    const newName = emoji + '・' + channel.name;
+    await channel.setName(newName);
+    console.log(`Auto-emoji: ${channel.name} -> ${newName}`);
+  } catch(e) {
+    console.log('Could not auto-emoji channel:', e.message);
+  }
+});
 
 // Raw event listener for DMs as fallback
 client.on('raw', async (packet) => {
