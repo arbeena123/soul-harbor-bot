@@ -265,6 +265,8 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
+  // ── ADMIN COMMANDS (run from any channel) ──
+
   // ── NATURAL LANGUAGE INTENT DETECTION ──
   const isMentioned = message.mentions.has(client.user);
   const isDM = !message.guild; // private DM
