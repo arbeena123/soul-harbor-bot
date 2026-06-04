@@ -201,7 +201,7 @@ client.on('messageCreate', async (message) => {
   if (triviaActive.has(message.channel.id)) {
     const trivia = triviaActive.get(message.channel.id);
     // Log for debugging
-    console.log(\`[TRIVIA] Channel: \${message.channel.id}, Answer expected: "\${trivia.answer}", Got: "\${lower}"\`);
+    console.log("[TRIVIA] Channel: " + message.channel.id + ", Answer expected: \"" + trivia.answer + "\", Got: \"" + lower + "\"");
     if (!trivia.winnerId && lower.includes(trivia.answer.toLowerCase())) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
@@ -209,7 +209,7 @@ client.on('messageCreate', async (message) => {
         await message.author.send(
           `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**\n\n` +
           `Your exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n` +
-          `# \`${code}\`\n\n` +
+          `# `${code}`\n\n` +
           `Use it at **thepaganshoponline.com** at checkout.\n` +
           `Valid for 7 days. Keep this code private! 🛍️🔮`
         );
@@ -619,7 +619,7 @@ async function handleCoupon(message) {
     return;
   }
   const code = generateCouponCode();
-  message.author.send(`🎁 Your exclusive discount code: \`${code}\`\nUse at thepaganshoponline.com — valid 7 days!`);
+  message.author.send(`🎁 Your exclusive discount code: `${code}`\nUse at thepaganshoponline.com — valid 7 days!`);
   message.reply('✅ Your discount code has been sent to your DMs! 🎁');
 }
 
