@@ -200,6 +200,8 @@ client.on('messageCreate', async (message) => {
   //    are accepted in the trivia channel even when bot wouldn't normally respond ──
   if (triviaActive.has(message.channel.id)) {
     const trivia = triviaActive.get(message.channel.id);
+    // Log for debugging
+    console.log(\`[TRIVIA] Channel: \${message.channel.id}, Answer expected: "\${trivia.answer}", Got: "\${lower}"\`);
     if (!trivia.winnerId && lower.includes(trivia.answer.toLowerCase())) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
@@ -309,7 +311,7 @@ client.on('messageCreate', async (message) => {
   // ONLY respond in soulharbor-chat channel or when @mentioned or in DMs
   // Strip emojis from channel name for comparison
   const rawChannelName = message.channel.name ? message.channel.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() : '';
-  const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName === 'soulharbor-chat' || rawChannelName.includes('soulharborchat');
+  const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName === 'soulharbor-chat' || rawChannelName.includes('soulharborchat') || rawChannelName === 'paganshopchat' || rawChannelName === 'paganshop-chat' || rawChannelName.includes('paganshopchat');
   // IMPORTANT: Only respond if @mentioned OR in soulharbor-chat OR in DMs
   const shouldRespond = isMentioned || isGeneralChat || isDM;
   // Do NOT respond to regular chat in other channels unless @mentioned
