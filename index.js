@@ -21,6 +21,9 @@ async function initDB() {
       trivia_wins INTEGER DEFAULT 0,
       altar_posts INTEGER DEFAULT 0,
       spell_posts INTEGER DEFAULT 0,
+      manifestation_posts INTEGER DEFAULT 0,
+      paranormal_posts INTEGER DEFAULT 0,
+      soul_harbor_interactions INTEGER DEFAULT 0,
       classes_attended INTEGER DEFAULT 0,
       ai_calls_today INTEGER DEFAULT 0,
       ai_calls_date TEXT DEFAULT '',
@@ -50,35 +53,59 @@ async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  // Add new columns to existing tables without losing data (safe to run every boot)
+  const newCols = [
+    `ALTER TABLE members ADD COLUMN IF NOT EXISTS manifestation_posts INTEGER DEFAULT 0`,
+    `ALTER TABLE members ADD COLUMN IF NOT EXISTS paranormal_posts INTEGER DEFAULT 0`,
+    `ALTER TABLE members ADD COLUMN IF NOT EXISTS soul_harbor_interactions INTEGER DEFAULT 0`,
+  ];
+  for (const sql of newCols) await db.query(sql).catch(() => {});
   console.log('✅ Phase 2 database ready');
 }
 
 // ─── PHASE 2: XP / LEVEL SYSTEM ──────────────────────────
 const XP_VALUES = {
-  chat: 2, altar_pic: 50, manifestation: 50, spell: 50,
-  trivia_win: 75, class_attend: 30, referral: 100,
+  // LOW — just being here
+  chat:                    2,   // per message, rate-limited 1 per 60s
+  // MEDIUM — interacting with Soul Harbor
+  soul_harbor_tarot:      15,   // asking Soul Harbor for a reading
+  soul_harbor_ask:        10,   // using !ask
+  soul_harbor_horoscope:   8,   // using !horoscope
+  soul_harbor_ghost:       8,   // requesting a ghost story
+  // HIGH — content that takes real effort
+  altar_pic:              50,   // post in #spirit-altars
+  manifestation_pic:      50,   // post in #spirit-manifestations
+  spell_post:             60,   // post in #spell-sharing or #magical-concoctions
+  paranormal_story:       75,   // post in #paranormal-stories (text, high effort)
+  trivia_win:             75,   // win the daily trivia
+  class_attend:           40,   // attend a Wednesday class
+  // HIGHEST — community growth
+  referral:              100,   // confirmed referral (48h hold)
 };
 
 const LEVELS = [
-  { level: 1,  name: 'Seeker',         xp: 0,     reward: null },
-  { level: 5,  name: 'Initiate',        xp: 500,   reward: { type: 'discount', pct: 10 } },
-  { level: 10, name: 'Acolyte',         xp: 1500,  reward: { type: 'discount', pct: 15 } },
-  { level: 20, name: 'Adept',           xp: 4000,  reward: { type: 'discount', pct: 20 } },
-  { level: 30, name: 'Mystic',          xp: 9000,  reward: { type: 'discount', pct: 25 } },
-  { level: 50, name: 'High Priest/ess', xp: 20000, reward: { type: 'giftcard', value: 25 } },
+  { level: 1,  name: 'Seeker',         xp: 0,      reward: null },
+  { level: 5,  name: 'Initiate',        xp: 800,    reward: { type: 'discount', pct: 10 } },
+  { level: 10, name: 'Acolyte',         xp: 2500,   reward: { type: 'discount', pct: 15 } },
+  { level: 20, name: 'Adept',           xp: 6000,   reward: { type: 'discount', pct: 20 } },
+  { level: 30, name: 'Mystic',          xp: 14000,  reward: { type: 'discount', pct: 25 } },
+  { level: 50, name: 'High Priest/ess', xp: 30000,  reward: { type: 'giftcard', value: 25 } },
 ];
 
 const BADGES_DEF = {
-  lightning_reflexes: { emoji: '⚡', name: 'Lightning Reflexes', desc: 'Answer trivia in under 60 seconds' },
-  the_seer:           { emoji: '🔮', name: 'The Seer',            desc: 'Complete 25 tarot readings' },
-  trivia_master:      { emoji: '🏆', name: 'Trivia Master',       desc: 'Win 25 trivia contests' },
-  verified_patron:    { emoji: '✅', name: 'Verified Patron',     desc: 'Verified purchase or review' },
-  greeter:            { emoji: '👋', name: 'Greeter',             desc: 'Refer 3 friends to Soul Harbor' },
-  coven_builder:      { emoji: '🌙', name: 'Coven Builder',       desc: 'Refer 10 friends to Soul Harbor' },
-  high_priest:        { emoji: '👑', name: 'High Priest/ess',     desc: 'Refer 25+ members' },
-  altar_keeper:       { emoji: '🕯️', name: 'Altar Keeper',        desc: 'Post 10 altar pictures' },
-  spell_weaver:       { emoji: '✨', name: 'Spell Weaver',         desc: 'Post 10 spells or rituals' },
-  class_scholar:      { emoji: '📚', name: 'Scholar of the Veil', desc: 'Attend 5 spirit keeping classes' },
+  lightning_reflexes:  { emoji: '⚡', name: 'Lightning Reflexes',   desc: 'Answer trivia in under 60 seconds' },
+  the_seer:            { emoji: '🔮', name: 'The Seer',              desc: 'Complete 25 tarot readings' },
+  trivia_master:       { emoji: '🏆', name: 'Trivia Master',         desc: 'Win 25 trivia contests' },
+  verified_patron:     { emoji: '✅', name: 'Verified Patron',       desc: 'Verified purchase or review' },
+  greeter:             { emoji: '👋', name: 'Greeter',               desc: 'Refer 3 friends to Soul Harbor' },
+  coven_builder:       { emoji: '🌙', name: 'Coven Builder',         desc: 'Refer 10 friends to Soul Harbor' },
+  high_priest:         { emoji: '👑', name: 'High Priest/ess',       desc: 'Refer 25+ members' },
+  altar_keeper:        { emoji: '🕯️', name: 'Altar Keeper',          desc: 'Post 10 altar pictures' },
+  spell_weaver:        { emoji: '✨', name: 'Spell Weaver',           desc: 'Post 10 spells or rituals' },
+  class_scholar:       { emoji: '📚', name: 'Scholar of the Veil',   desc: 'Attend 5 spirit keeping classes' },
+  paranormal_witness:  { emoji: '👁️', name: 'Paranormal Witness',    desc: 'Share 5 paranormal stories' },
+  manifestor:          { emoji: '🌟', name: 'The Manifestor',         desc: 'Post 10 manifestation pics' },
+  spirit_conversant:   { emoji: '💬', name: 'Spirit Conversant',     desc: 'Interact with Soul Harbor 50 times' },
 };
 
 const CLASS_TOPICS = [
@@ -345,6 +372,14 @@ async function runWeeklyClass(guild) {
 // ─── PHASE 2: !ask command ───────────────────────────────
 async function handleAsk(message, question) {
   if (!question) return message.reply('Usage: `!ask <your question>`');
+  // Soul Harbor interaction XP
+  if (db) {
+    await dbEnsure(message.author.id, message.author.username);
+    await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_ask, message.guild);
+    await db.query('UPDATE members SET soul_harbor_interactions = soul_harbor_interactions + 1 WHERE user_id=$1', [message.author.id]);
+    const m = await dbGet(message.author.id);
+    if (m && m.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
+  }
   const reply = await askGPT([
     { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
     { role: 'user', content: question }
@@ -602,30 +637,51 @@ client.on('messageCreate', async (message) => {
     await dbEnsure(userId, username);
     const now = Date.now();
     const mData = await dbGet(userId);
+    const cn = message.channel.name.toLowerCase();
+
     // Chat XP — rate limited 1 per 60s
     if (mData && now - Number(mData.last_chat_xp) > 60_000) {
       await addXP(userId, username, XP_VALUES.chat, message.guild);
       await db.query('UPDATE members SET last_chat_xp=$1 WHERE user_id=$2', [now, userId]);
     }
-    // Channel-specific XP for image posts
-    if (message.attachments.size > 0) {
-      const cn = message.channel.name.toLowerCase();
-      if (cn.includes('altar')) {
-        await addXP(userId, username, XP_VALUES.altar_pic, message.guild);
-        await db.query('UPDATE members SET altar_posts = altar_posts + 1 WHERE user_id=$1', [userId]);
-        const m2 = await dbGet(userId);
-        if (m2 && m2.altar_posts >= 10) await awardBadge(userId, username, 'altar_keeper', message.guild);
-        await message.react('🕯️').catch(() => {});
-      } else if (cn.includes('manifest')) {
-        await addXP(userId, username, XP_VALUES.manifestation, message.guild);
-        await message.react('✨').catch(() => {});
-      } else if (cn.includes('spell') || cn.includes('ritual')) {
-        await addXP(userId, username, XP_VALUES.spell, message.guild);
-        await db.query('UPDATE members SET spell_posts = spell_posts + 1 WHERE user_id=$1', [userId]);
-        const m2 = await dbGet(userId);
-        if (m2 && m2.spell_posts >= 10) await awardBadge(userId, username, 'spell_weaver', message.guild);
-        await message.react('🌙').catch(() => {});
-      }
+
+    // ── HIGH-EFFORT CHANNEL XP ─────────────────────────
+    // Altar pics — image required
+    if (message.attachments.size > 0 && (cn.includes('altar') || cn.includes('spirit-altar'))) {
+      await addXP(userId, username, XP_VALUES.altar_pic, message.guild);
+      await db.query('UPDATE members SET altar_posts = altar_posts + 1 WHERE user_id=$1', [userId]);
+      const m2 = await dbGet(userId);
+      if (m2 && m2.altar_posts >= 10) await awardBadge(userId, username, 'altar_keeper', message.guild);
+      await message.react('🕯️').catch(() => {});
+    }
+
+    // Manifestation pics — image required
+    else if (message.attachments.size > 0 && (cn.includes('manifest'))) {
+      await addXP(userId, username, XP_VALUES.manifestation_pic, message.guild);
+      await db.query('UPDATE members SET manifestation_posts = manifestation_posts + 1 WHERE user_id=$1', [userId]);
+      const m2 = await dbGet(userId);
+      if (m2 && m2.manifestation_posts >= 10) await awardBadge(userId, username, 'manifestor', message.guild);
+      await message.react('✨').catch(() => {});
+    }
+
+    // Spell sharing / magical concoctions — image OR long text (real effort)
+    else if ((cn.includes('spell') || cn.includes('magical') || cn.includes('concoction') || cn.includes('ritual')) &&
+             (message.attachments.size > 0 || content.length > 80)) {
+      await addXP(userId, username, XP_VALUES.spell_post, message.guild);
+      await db.query('UPDATE members SET spell_posts = spell_posts + 1 WHERE user_id=$1', [userId]);
+      const m2 = await dbGet(userId);
+      if (m2 && m2.spell_posts >= 10) await awardBadge(userId, username, 'spell_weaver', message.guild);
+      await message.react('🌙').catch(() => {});
+    }
+
+    // Paranormal stories — text post, min 100 chars (real story, not one-liners)
+    else if ((cn.includes('paranormal') || cn.includes('experience') || cn.includes('spirit-experience')) &&
+             content.length > 100 && !content.startsWith('!')) {
+      await addXP(userId, username, XP_VALUES.paranormal_story, message.guild);
+      await db.query('UPDATE members SET paranormal_posts = paranormal_posts + 1 WHERE user_id=$1', [userId]);
+      const m2 = await dbGet(userId);
+      if (m2 && m2.paranormal_posts >= 5) await awardBadge(userId, username, 'paranormal_witness', message.guild);
+      await message.react('👁️').catch(() => {});
     }
   }
 
@@ -931,6 +987,14 @@ function shuffleDeck(count) {
 }
 
 async function handleTarot(message) {
+  // Soul Harbor interaction XP
+  if (db && message.guild) {
+    await dbEnsure(message.author.id, message.author.username);
+    await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_tarot, message.guild);
+    await db.query('UPDATE members SET soul_harbor_interactions = soul_harbor_interactions + 1 WHERE user_id=$1', [message.author.id]);
+    const mCheck = await dbGet(message.author.id);
+    if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
+  }
   const content = message.content;
   // Detect card count from digits OR written words
   const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 'a':3 };
@@ -984,6 +1048,14 @@ async function handleTarot(message) {
 
 // ─── GHOST STORY ─────────────────────────────────────────
 async function handleGhostStory(message) {
+  // Soul Harbor interaction XP
+  if (db && message.guild) {
+    await dbEnsure(message.author.id, message.author.username);
+    await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_ghost, message.guild);
+    await db.query('UPDATE members SET soul_harbor_interactions = soul_harbor_interactions + 1 WHERE user_id=$1', [message.author.id]);
+    const mCheck = await dbGet(message.author.id);
+    if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
+  }
   const typing = await message.channel.send('👻 *Reaching into the shadow realm...*');
 
   const story = await askGPT([
@@ -1061,6 +1133,14 @@ async function handleTrivia(message) {
 
 // ─── HOROSCOPE ───────────────────────────────────────────
 async function handleHoroscope(message) {
+  // Soul Harbor interaction XP
+  if (db && message.guild) {
+    await dbEnsure(message.author.id, message.author.username);
+    await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_horoscope, message.guild);
+    await db.query('UPDATE members SET soul_harbor_interactions = soul_harbor_interactions + 1 WHERE user_id=$1', [message.author.id]);
+    const mCheck = await dbGet(message.author.id);
+    if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
+  }
   const signs = ['aries','taurus','gemini','cancer','leo','virgo','libra','scorpio','sagittarius','capricorn','aquarius','pisces'];
   const lower = message.content.toLowerCase();
   const sign = signs.find(s => lower.includes(s)) || 'general';
@@ -1149,12 +1229,12 @@ async function handleHelp(message) {
   const embed = makeEmbed(
     '🔮 Soul Harbor Commands',
     '**🎮 Core:**\n' +
-    '`!tarot` — Get a tarot reading\n' +
-    '`!ghost` — Hear a ghost story from the shadow realm\n' +
-    '`!trivia` — Start a contest to win a discount code\n' +
-    '`!horoscope [sign]` — Get your daily horoscope\n' +
+    '`!tarot` — Get a tarot reading (+15 XP)\n' +
+    '`!ghost` — Hear a ghost story (+8 XP)\n' +
+    '`!trivia` — Start a contest, win discount codes (+75 XP)\n' +
+    '`!horoscope [sign]` — Get your daily horoscope (+8 XP)\n' +
     '`!spirit [name]` — Learn about any spirit or entity\n' +
-    '`!ask [question]` — Ask Soul Harbor anything\n\n' +
+    '`!ask [question]` — Ask Soul Harbor anything (+10 XP)\n\n' +
     '**⭐ XP & Levels:**\n' +
     '`!xp` — Check your XP and level\n' +
     '`!profile [@user]` — View a full profile card\n' +
@@ -1167,8 +1247,18 @@ async function handleHelp(message) {
     '`!badges` — See your earned badges\n' +
     '`!allbadges` — See all available achievement badges\n' +
     '`!class` — View next class schedule\n\n' +
-    '💬 Or just chat with me directly in #soulharbor-chat!\n\n' +
-    '⭐ **Earn XP:** Chat · Altar Pics (50) · Manifestations (50) · Spells (50) · Trivia Win (75) · Classes (30) · Referrals (100)\n\n' +
+    '**⭐ How to Earn XP:**\n' +
+    '💬 Chat — 2 XP/min\n' +
+    '🔮 Tarot reading — 15 XP\n' +
+    '🌙 Horoscope / Ghost story — 8 XP\n' +
+    '❓ Ask Soul Harbor — 10 XP\n' +
+    '🕯️ Post altar pic — 50 XP\n' +
+    '✨ Post manifestation pic — 50 XP\n' +
+    '🌙 Post spell or ritual — 60 XP\n' +
+    '👁️ Share paranormal story — 75 XP\n' +
+    '🏆 Win trivia contest — 75 XP\n' +
+    '📚 Attend a class — 40 XP\n' +
+    '👋 Refer a friend — 100 XP\n\n' +
     '🛍️ Shop: **thepaganshoponline.com**'
   );
   message.channel.send({ embeds: [embed] });
