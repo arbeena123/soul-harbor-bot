@@ -1,3 +1,4 @@
+const fs = require('fs');
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits } = require('discord.js');
 const OpenAI = require('openai');
 const cron = require('node-cron');
@@ -57,7 +58,20 @@ const CONFIG = {
 const BAD_WORDS = ['fuck','shit','ass','bitch','damn','cunt','bastard','piss','cock','dick'];
 const warnCount = new Map();       // userId -> warn count
 const triviaActive = new Map();    // channelId -> { answer, winnerId }
-const recentTriviaQuestions = [];  // last 20 questions asked — prevents duplicates
+// Persistent trivia question history — survives bot restarts
+const TRIVIA_HISTORY_FILE = '/tmp/trivia_history.json';
+function loadTriviaHistory() {
+  try {
+    if (fs.existsSync(TRIVIA_HISTORY_FILE)) {
+      return JSON.parse(fs.readFileSync(TRIVIA_HISTORY_FILE, 'utf8'));
+    }
+  } catch(e) {}
+  return [];
+}
+function saveTriviaHistory(arr) {
+  try { fs.writeFileSync(TRIVIA_HISTORY_FILE, JSON.stringify(arr)); } catch(e) {}
+}
+const recentTriviaQuestions = loadTriviaHistory();
 const inviteTracker = new Map();   // inviterId -> count
 
 // ─── SPIRIT KNOWLEDGE SYSTEM PROMPT ──────────────────────
@@ -540,7 +554,7 @@ async function handleTrivia(message) {
 
   const result = await askGPT([
     { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: `Generate a trivia question about spirits, the paranormal, metaphysical topics, or spirit keeping. Do NOT repeat any of these recently asked questions: ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.join(' | ') : 'none'}. Format EXACTLY as:\nQUESTION: [question here]\nANSWER: [one word or short phrase answer]` }
+    { role: 'user', content: `Generate a trivia question about spirits, the paranormal, metaphysical topics, or spirit keeping. IMPORTANT: Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Be creative and vary the topic — cover different areas like spirit types, rituals, gemstones, mythology, divination tools, herbs, moon phases, etc. Format EXACTLY as:\nQUESTION: [question here]\nANSWER: [one word or short phrase answer]` }
   ], 150);
 
   await typing.delete().catch(() => {});
@@ -563,7 +577,8 @@ async function handleTrivia(message) {
 
   triviaActive.set(message.channel.id, { answer, winnerId: null });
   recentTriviaQuestions.push(question);
-  if (recentTriviaQuestions.length > 20) recentTriviaQuestions.shift();
+  if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
+  saveTriviaHistory(recentTriviaQuestions);
 
   const embed = makeEmbed(
     '🏆 Spirit Trivia Contest!',
@@ -724,7 +739,7 @@ function scheduleDailyTasks() {
 
     const result = await askGPT([
       { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-      { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. Do NOT repeat any of these recently asked questions: ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.join(' | ') : 'none'}. Format EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }
+      { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. IMPORTANT: Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Be creative and vary the topic — cover different areas like spirit types, rituals, gemstones, mythology, divination tools, herbs, moon phases, etc. Format EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }
     ], 150);
 
     if (!result) return;
@@ -738,7 +753,8 @@ function scheduleDailyTasks() {
 
     triviaActive.set(channel.id, { answer, winnerId: null });
     recentTriviaQuestions.push(question);
-    if (recentTriviaQuestions.length > 20) recentTriviaQuestions.shift();
+    if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
+    saveTriviaHistory(recentTriviaQuestions);
 
     const embed = makeEmbed(
       '🏆 Daily Spirit Trivia!',
