@@ -315,15 +315,27 @@ client.on('messageCreate', async (message) => {
 
   // ── NATURAL LANGUAGE INTENT DETECTION ──
   const isMentioned = message.mentions.has(client.user);
-  const isDM = !message.guild; // private DM
-  // ONLY respond in soulharbor-chat channel or when @mentioned or in DMs
-  // Strip emojis from channel name for comparison
+  const isDM = !message.guild;
   const rawChannelName = message.channel.name ? message.channel.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() : '';
   const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName === 'soulharbor-chat' || rawChannelName.includes('soulharborchat') || rawChannelName === 'paganshopchat' || rawChannelName === 'paganshop-chat' || rawChannelName.includes('paganshopchat');
-  // IMPORTANT: Only respond if @mentioned OR in soulharbor-chat OR in DMs
-  const shouldRespond = isMentioned || isGeneralChat || isDM;
-  // Do NOT respond to regular chat in other channels unless @mentioned
+  const isCommand = content.startsWith('!');
+
+  // STRICT RESPONSE RULES:
+  // - In paganshop-chat or soulharbor-chat: ONLY respond when @mentioned or using a ! command
+  // - In other channels: ONLY respond when @mentioned
+  // - In DMs: always respond
+  // - NEVER respond to messages that @mention someone else but not the bot
+  // - NEVER respond to empty messages, single emojis, or very short messages
+  const shouldRespond = isDM || isMentioned || (isGeneralChat && isCommand);
+
+  // Ignore very short messages (emojis, reactions, single words not directed at bot)
+  if (!isDM && !isMentioned && content.length < 3) return;
+
+  // If in general chat but not mentioned and not a command, ignore
   if (!shouldRespond) return;
+
+  // If mentioned but the mention is for someone else (not the bot), ignore
+  if (!isMentioned && !isDM && !isCommand) return;
 
   if (shouldRespond) {
     // Strip the @mention from content if present
