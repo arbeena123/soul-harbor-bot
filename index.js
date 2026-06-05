@@ -389,42 +389,6 @@ client.on('messageCreate', async (message) => {
   if (lower === '!setup') { await handleSetup(message); return; }
   if (lower.startsWith('!badge') || lower.startsWith('!badges')) { await handleBadges(message); return; }
 
-  // ── TRIVIA ANSWER CHECK ──
-  if (triviaActive.has(message.channel.id)) {
-    const trivia = triviaActive.get(message.channel.id);
-    if (!trivia.winnerId && lower.includes(trivia.answer.toLowerCase())) {
-      trivia.winnerId = userId;
-      const code = generateCouponCode();
-      
-      // DM the code PRIVATELY to winner only
-      try {
-        await message.author.send(
-          `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**\n\n` +
-          `Your exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n` +
-          `# \`${code}\`\n\n` +
-          `Use it at **thepaganshoponline.com** at checkout.\n` +
-          `Valid for 7 days. Keep this code private! 🛍️🔮`
-        );
-      } catch(e) {
-        console.log('Could not DM winner:', e.message);
-      }
-      
-      // Post public announcement WITHOUT the code
-      const embed = makeEmbed(
-        '🏆 We Have a Winner!',
-        `🎉 Congratulations ${message.author}! You answered correctly!\n\n` +
-        `Your discount code has been sent to your **DMs** — check your private messages! 🔮\n\n` +
-        `Thanks everyone for playing! Next contest coming soon. 🏆`,
-        0xFFD700
-      );
-      message.channel.send({ embeds: [embed] });
-      triviaActive.delete(message.channel.id);
-
-      // Assign Contest Champion role
-      const role = message.guild.roles.cache.find(r => r.name === CONFIG.ROLES.CONTEST_CHAMPION);
-      if (role) message.member.roles.add(role).catch(console.error);
-    }
-  }
 });
 
 // ─── TAROT READING ───────────────────────────────────────
@@ -707,7 +671,7 @@ function scheduleDailyTasks() {
   if (!guild) return;
 
   // Daily ghost story — 8pm every day
-  cron.schedule('0 1 * * *', async () => { // 8pm EST
+  cron.schedule('0 0 * * *', async () => { // 8pm EDT (UTC-4)
     const channel = getChannel(guild, CONFIG.CHANNELS.GHOST_STORY);
     if (!channel) return;
 
@@ -723,7 +687,7 @@ function scheduleDailyTasks() {
   });
 
   // Daily tarot card of the day — 9am every day
-  cron.schedule('0 14 * * *', async () => { // 9am EST
+  cron.schedule('0 13 * * *', async () => { // 9am EDT (UTC-4)
     const channel = getChannel(guild, CONFIG.CHANNELS.TAROT);
     if (!channel) return;
 
@@ -742,7 +706,7 @@ function scheduleDailyTasks() {
   });
 
   // Daily trivia contest — 6pm every day
-  cron.schedule('0 23 * * *', async () => { // 6pm EST
+  cron.schedule('0 22 * * *', async () => { // 6pm EDT (UTC-4)
     const channel = getChannel(guild, CONFIG.CHANNELS.TRIVIA);
     if (!channel) return;
 
