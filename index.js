@@ -752,9 +752,41 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // ── ADMIN COMMANDS (run from any channel) ──
-  if (lower === '!setup') { await handleSetup(message); return; }
-  if (lower === '!help' || lower === '!commands') { await handleHelp(message); return; }
+  // ── ALL ! COMMANDS — checked before natural language, run from any channel ──
+  if (content.startsWith('!')) {
+    if (lower === '!setup') { await handleSetup(message); return; }
+    if (lower === '!help' || lower === '!commands') { await handleHelp(message); return; }
+    if (lower.startsWith('!tarot') || lower.startsWith('!reading')) { await handleTarot(message); return; }
+    if (lower.startsWith('!ghost') || lower.startsWith('!story')) { await handleGhostStory(message); return; }
+    if (lower.startsWith('!trivia') || lower.startsWith('!contest')) { await handleTrivia(message); return; }
+    if (lower.startsWith('!horoscope')) { await handleHoroscope(message); return; }
+    if (lower.startsWith('!spirit ')) { await handleSpiritInfo(message, content.slice(8)); return; }
+    if (lower.startsWith('!badge')) { await handleBadges(message); return; }
+    // Phase 2 commands
+    if (lower === '!xp' || lower === '!level') { await handleXP(message); return; }
+    if (lower.startsWith('!profile')) { await handleProfile(message); return; }
+    if (lower === '!leaderboard' || lower === '!lb') { await handleLeaderboard(message); return; }
+    if (lower.startsWith('!keep')) { const args = content.slice(5).trim().split(/\s+/); await handleKeep(message, args); return; }
+    if (lower.startsWith('!ask ')) { await handleAsk(message, content.slice(5).trim()); return; }
+    if (lower === '!class' || lower === '!classes') {
+      const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
+      const embed = makeEmbed('📚 Spirit Keeping Academy',
+        `**Next Class:** ${CLASS_TOPICS[topicIdx]}\n🕖 Every Wednesday at 6PM EST\n\nReact with 📖 when class starts to earn **30 XP**!\n\nUse \`!ask <question>\` to ask Soul Harbor anything.`
+      );
+      message.channel.send({ embeds: [embed] }); return;
+    }
+    if (lower === '!allbadges') {
+      const embed = new EmbedBuilder().setColor(0x7B2FBE).setTitle('🎖️ Soul Harbor Badges');
+      const earned = db ? ((await dbGet(userId))?.badges || []) : [];
+      for (const [key, b] of Object.entries(BADGES_DEF)) {
+        embed.addFields({ name: `${b.emoji} ${b.name} ${earned.includes(key)?'✅':'🔒'}`, value: b.desc, inline: true });
+      }
+      embed.setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
+      message.channel.send({ embeds: [embed] }); return;
+    }
+    // Unknown ! command — don't fall through to AI chat
+    return;
+  }
 
   // ── NATURAL LANGUAGE INTENT DETECTION ──
   const isMentioned = message.mentions.has(client.user);
@@ -832,38 +864,6 @@ client.on('messageCreate', async (message) => {
     // Everything else — natural AI conversation
     await handleChat(message, cleanContent);
     return;
-  }
-
-  // Also allow old ! commands as fallback for power users
-  if (lower.startsWith('!tarot') || lower.startsWith('!reading')) { await handleTarot(message); return; }
-  if (lower.startsWith('!ghost') || lower.startsWith('!story')) { await handleGhostStory(message); return; }
-  if (lower.startsWith('!trivia') || lower.startsWith('!contest')) { await handleTrivia(message); return; }
-  if (lower.startsWith('!horoscope')) { await handleHoroscope(message); return; }
-  if (lower.startsWith('!spirit ')) { await handleSpiritInfo(message, content.slice(8)); return; }
-  if (lower.startsWith('!help') || lower === '!commands') { await handleHelp(message); return; }
-  if (lower === '!setup') { await handleSetup(message); return; }
-  if (lower.startsWith('!badge') || lower.startsWith('!badges')) { await handleBadges(message); return; }
-
-  // ── PHASE 2 COMMANDS ────────────────────────────────────
-  if (lower === '!xp' || lower === '!level') { await handleXP(message); return; }
-  if (lower.startsWith('!profile')) { await handleProfile(message); return; }
-  if (lower === '!leaderboard' || lower === '!lb') { await handleLeaderboard(message); return; }
-  if (lower.startsWith('!keep')) { const args = content.slice(5).trim().split(/\s+/); await handleKeep(message, args); return; }
-  if (lower.startsWith('!ask ')) { await handleAsk(message, content.slice(5).trim()); return; }
-  if (lower === '!class' || lower === '!classes') {
-    const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
-    const embed = makeEmbed('📚 Spirit Keeping Academy',
-      `**Next Class:** ${CLASS_TOPICS[topicIdx]}\n🕖 Every Wednesday at 6PM EST\n\nReact with 📖 when class starts to earn **30 XP**!\n\nUse \`!ask <question>\` to ask Soul Harbor anything.`
-    );
-    message.channel.send({ embeds: [embed] }); return;
-  }
-  if (lower === '!allbadges') {
-    const embed = new EmbedBuilder().setColor(0x7B2FBE).setTitle('🎖️ Soul Harbor Badges');
-    const earned = db ? (await dbGet(userId))?.badges || [] : [];
-    for (const [key, b] of Object.entries(BADGES_DEF)) {
-      embed.addFields({ name: `${b.emoji} ${b.name} ${earned.includes(key)?'✅':'🔒'}`, value: b.desc, inline: true });
-    }
-    message.channel.send({ embeds: [embed] }); return;
   }
 
 });
