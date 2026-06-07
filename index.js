@@ -84,12 +84,14 @@ const XP_VALUES = {
 };
 
 const LEVELS = [
-  { level: 1,  name: 'Seeker',         xp: 0,      reward: null },
-  { level: 5,  name: 'Initiate',        xp: 800,    reward: { type: 'discount', pct: 10 } },
-  { level: 10, name: 'Acolyte',         xp: 2500,   reward: { type: 'discount', pct: 15 } },
-  { level: 20, name: 'Adept',           xp: 6000,   reward: { type: 'discount', pct: 20 } },
-  { level: 30, name: 'Mystic',          xp: 14000,  reward: { type: 'discount', pct: 25 } },
-  { level: 50, name: 'High Priest/ess', xp: 30000,  reward: { type: 'giftcard', value: 25 } },
+  { level: 1,  name: 'Seeker',       xp: 0,      reward: null },
+  { level: 5,  name: 'Initiate',     xp: 800,    reward: { type: 'discount', pct: 10 } },
+  { level: 10, name: 'Neophyte',     xp: 2500,   reward: { type: 'discount', pct: 15 } },
+  { level: 15, name: 'Practitioner', xp: 5000,   reward: { type: 'discount', pct: 18 } },
+  { level: 20, name: 'Mystic',       xp: 9000,   reward: { type: 'discount', pct: 20 } },
+  { level: 30, name: 'Magus',        xp: 18000,  reward: { type: 'discount', pct: 25 } },
+  { level: 40, name: 'Elder',        xp: 32000,  reward: { type: 'giftcard',  value: 15 } },
+  { level: 50, name: 'Grandmaster',  xp: 50000,  reward: { type: 'giftcard',  value: 25 } },
 ];
 
 const BADGES_DEF = {
@@ -183,7 +185,7 @@ async function handleLevelUp(userId, username, tier, guild) {
       embed.addFields({ name: '🎁 Grand Milestone Reward!', value: `You've earned a **$${tier.reward.value} Gift Card**! Billy will contact you within 48 hours.` });
       await member.send({ embeds: [embed] }).catch(() => {});
       const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
-      if (billy) await billy.send(`🏆 **Grand Prize!** ${username} reached Level ${tier.level} (${tier.name}) — $${tier.reward.value} gift card owed!`).catch(() => {});
+      if (billy) await billy.send(`🏆 **Grand Milestone!** ${username} reached Level ${tier.level} (${tier.name}) — $${tier.reward.value} gift card owed! Please contact them within 48 hours.`).catch(() => {});
     }
   } catch(e) { console.error('LevelUp error:', e.message); }
 }
@@ -1284,6 +1286,9 @@ async function handleHelp(message) {
     '🏆 Win trivia contest — 75 XP\n' +
     '📚 Attend a class — 40 XP\n' +
     '👋 Refer a friend — 100 XP\n\n' +
+    '**🌟 Level Titles:**\n' +
+    'L1 Seeker → L5 Initiate → L10 Neophyte → L15 Practitioner\n' +
+    'L20 Mystic → L30 Magus → L40 Elder → L50 Grandmaster\n\n' +
     '🛍️ Shop: **thepaganshoponline.com**'
   );
   message.channel.send({ embeds: [embed] });
