@@ -489,7 +489,29 @@ function generateCouponCode() {
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
-
+async function saveCouponToShop(code, percent = CONFIG.COUPONS.DISCOUNT_PERCENT, days = 7) {
+  try {
+    const res = await fetch(`${process.env.SHOP_URL}/create_coupon.php`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Coupon-Secret': process.env.BOT_COUPON_SECRET
+      },
+      body: JSON.stringify({ code, percent, days })
+    });
+    const data = await res.json();
+    if (data.success) {
+      console.log(`✅ Coupon saved to Zen Cart: ${code}`);
+      return true;
+    } else {
+      console.error('❌ Coupon save failed:', data.error);
+      return false;
+    }
+  } catch (e) {
+    console.error('❌ Coupon endpoint error:', e.message);
+    return false;
+  }
+}
 function getChannel(guild, name) {
   const cleanName = name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
   return guild.channels.cache.find(c => 
