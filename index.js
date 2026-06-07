@@ -176,6 +176,7 @@ async function handleLevelUp(userId, username, tier, guild) {
 
     if (tier.reward?.type === 'discount') {
       const code = genCode('SOUL');
+      await saveCouponToShop(code); // ADD THIS
       embed.addFields({ name: '🎁 Reward Unlocked!', value: `Here is your **${tier.reward.pct}% off** coupon for The Pagan Shop Online!\n\`${code}\`\n[Shop Now](https://www.thepaganshoponline.com)` });
       await member.send({ embeds: [embed] }).catch(() => {});
     } else if (tier.reward?.type === 'giftcard') {
@@ -714,6 +715,7 @@ client.on('messageCreate', async (message) => {
     if (!trivia.winnerId && lower.includes(trivia.answer.toLowerCase())) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
+      await saveCouponToShop(code); // ADD THIS
       // PHASE 2: Award XP + track trivia win
       if (db) {
         const tStart = triviaActive.get(message.channel.id).startTime || Date.now();
@@ -1213,6 +1215,7 @@ async function handleCoupon(message) {
     return;
   }
   const code = generateCouponCode();
+  await saveCouponToShop(code); // ADD THIS
   message.author.send(`🎁 Your exclusive discount code: \`${code}\`\nUse at thepaganshoponline.com — valid 7 days!`);
   message.reply('✅ Your discount code has been sent to your DMs! 🎁');
 }
