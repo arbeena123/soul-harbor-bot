@@ -179,9 +179,9 @@ async function ensureLevelRoles(guild) {
       try {
         await guild.roles.create({
           name: tier.name,
-          color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
+          colors: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
           reason: 'Soul Harbor XP level role',
-          hoist: true, // show separately in member list
+          hoist: true,
         });
         console.log(`✅ Created role: ${tier.name}`);
         await new Promise(r => setTimeout(r, 500));
@@ -203,7 +203,7 @@ async function handleLevelUp(userId, username, tier, guild) {
     if (!newRole) {
       newRole = await guild.roles.create({
         name: tier.name,
-        color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
+        colors: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
         reason: 'Soul Harbor XP level role',
         hoist: true,
       }).catch(() => null);
@@ -619,7 +619,17 @@ const CONFIG = {
   }
 };
 
-const BAD_WORDS = ['fuck','shit','ass','bitch','damn','cunt','bastard','piss','cock','dick'];
+const BAD_WORDS = ['fuck','shit','bitch','cunt','bastard','cock','dick','nigger','nigga'];
+
+function containsBadWord(text) {
+  const lower = text.toLowerCase();
+  // Use word boundary matching to avoid false positives
+  // e.g. 'ass' in 'class', 'assassin', 'pass' should NOT trigger
+  return BAD_WORDS.some(word => {
+    const regex = new RegExp('\\b' + word + '\\b', 'i');
+    return regex.test(lower);
+  });
+}
 const warnCount = new Map();       // userId -> warn count
 const triviaActive = new Map();    // channelId -> { answer, winnerId }
 // Persistent trivia question history — stored in PostgreSQL, survives redeployments
@@ -701,13 +711,15 @@ async function saveCouponToShop(code, percent = CONFIG.COUPONS.DISCOUNT_PERCENT,
 }
 function getChannel(guild, name) {
   const cleanName = name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
-  return guild.channels.cache.find(c => 
-    c.type === 0 && (
-      c.name === name || 
-      c.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() === cleanName ||
-      c.name.toLowerCase().includes(cleanName)
-    )
-  );
+  return guild.channels.cache.find(c => {
+    if (c.type !== 0) return false;
+    const cn = c.name.toLowerCase();
+    const cnClean = cn.replace(/[^a-z0-9-]/gi, '');
+    return cn === name ||
+           cnClean === cleanName ||
+           cn.includes(name.toLowerCase()) ||
+           cnClean.includes(cleanName);
+  });
 }
 
 async function askGPT(messages, max_tokens = 400) {
@@ -768,24 +780,38 @@ client.once('ready', async () => {
 
 // ─── WELCOME NEW MEMBERS ─────────────────────────────────
 client.on('guildMemberAdd', async (member) => {
-  // Auto-assign Member role
-  const memberRole = member.guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
-  if (memberRole) {
-    member.roles.add(memberRole).catch(() => {});
-  }
-
   const guild = member.guild;
 
-  // Assign Spirit Seeker role
-  const role = guild.roles.cache.find(r => r.name === CONFIG.ROLES.SPIRIT_SEEKER);
-  if (role) member.roles.add(role).catch(console.error);
+  // Auto-assign Member role
+  const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
+  if (memberRole) member.roles.add(memberRole).catch(() => {});
+
+  // Assign Seeker role (Level 1)
+  let seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
+  if (!seekerRole) {
+    seekerRole = await guild.roles.create({
+      name: 'Seeker',
+      colors: LEVEL_ROLE_COLORS['Seeker'] || 0x888888,
+      reason: 'Soul Harbor default level role',
+      hoist: true,
+    }).catch(() => null);
+  }
+  if (seekerRole) member.roles.add(seekerRole).catch(() => {});
 
   // PHASE 2: init member in DB
   if (db) await dbEnsure(member.id, member.user.username);
 
-  // Welcome message
-  const welcomeChannel = getChannel(guild, CONFIG.CHANNELS.WELCOME);
-  if (!welcomeChannel) return;
+  // Welcome message — try multiple channel name variations
+  const welcomeChannel = getChannel(guild, 'introductions') || 
+                         getChannel(guild, 'welcome') ||
+                         getChannel(guild, 'general');
+  
+  if (!welcomeChannel) {
+    console.log('Welcome channel not found — checked: introductions, welcome, general');
+    return;
+  }
+
+  console.log(`✅ Sending welcome to ${member.user.username} in #${welcomeChannel.name}`);
 
   const embed = makeEmbed(
     `🔮 Welcome, ${member.displayName}!`,
@@ -1017,7 +1043,7 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── MODERATION ──
-  const foundBadWord = BAD_WORDS.find(w => lower.includes(w));
+  const foundBadWord = containsBadWord(content);
   if (foundBadWord) {
     const count = (warnCount.get(userId) || 0) + 1;
     warnCount.set(userId, count);
