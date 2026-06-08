@@ -136,6 +136,31 @@ function genCode(prefix = 'SOUL') {
   return `${prefix}${Date.now().toString(36).toUpperCase()}`;
 }
 
+
+// ─── Exclude owner/admins/mods from XP system ────────────
+async function isExcludedFromXP(member) {
+  if (!member) return false;
+  if (member.guild.ownerId === member.id) return true;
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  const modRoles = ["mod", "moderator", "admin", "staff", "developer"];
+  if (member.roles.cache.some(r => modRoles.includes(r.name.toLowerCase()))) return true;
+  return false;
+}
+
+// ─── Auto gift voucher for Elder/Grandmaster ─────────────
+async function generateGiftVoucher(value) {
+  try {
+    const code = "GV-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).substr(2,4).toUpperCase();
+    const res = await fetch(`${process.env.SHOP_URL}/create_coupon.php`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Coupon-Secret": process.env.BOT_COUPON_SECRET },
+      body: JSON.stringify({ code, percent: 0, fixed: value, days: 365, type: "gift" })
+    });
+    const data = await res.json();
+    if (data.success) { console.log(`Gift voucher created: ${code}`); return code; }
+    return null;
+  } catch(e) { console.error("Gift voucher error:", e.message); return null; }
+}
 async function dbEnsure(userId, username) {
   if (!db) return;
   await db.query(`INSERT INTO members (user_id, username) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET username=$2`, [userId, username]);
@@ -148,6 +173,11 @@ async function dbGet(userId) {
 
 async function addXP(userId, username, amount, guild) {
   if (!db) return;
+  // Skip owner/admins/mods
+  try {
+    const member = await guild.members.fetch(userId);
+    if (await isExcludedFromXP(member)) return;
+  } catch(_) {}
   await dbEnsure(userId, username);
   const before = await dbGet(userId);
   const tierBefore = getTierForXP(before.xp);
@@ -194,6 +224,12 @@ async function handleLevelUp(userId, username, tier, guild) {
   try {
     const member = await guild.members.fetch(userId);
 
+    // Skip owner, admins, mods
+    if (await isExcludedFromXP(member)) {
+      console.log(`Skipping level up rewards for excluded user: ${username}`);
+      return;
+    }
+
     // Remove all old level roles
     const oldRoles = LEVELS.map(l => guild.roles.cache.find(r => r.name === l.name)).filter(Boolean);
     await member.roles.remove(oldRoles).catch(() => {});
@@ -236,10 +272,21 @@ async function handleLevelUp(userId, username, tier, guild) {
       embed.addFields({ name: '🎁 Reward Unlocked!', value: `Here is your **${tier.reward.pct}% off** coupon for The Pagan Shop Online!\n\`${code}\`\n[Shop Now](https://www.thepaganshoponline.com)` });
       await member.send({ embeds: [embed] }).catch(() => {});
     } else if (tier.reward?.type === 'giftcard') {
-      embed.addFields({ name: '🎁 Grand Milestone Reward!', value: `You've earned a **$${tier.reward.value} Gift Card**! Billy will contact you within 48 hours.` });
-      await member.send({ embeds: [embed] }).catch(() => {});
-      const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
-      if (billy) await billy.send(`🏆 **Grand Milestone!** ${username} reached Level ${tier.level} (${tier.name}) — $${tier.reward.value} gift card owed! Please contact them within 48 hours.`).catch(() => {});
+      // AUTO-GENERATE gift voucher — no manual action needed from Billy
+      const gvCode = await generateGiftVoucher(tier.reward.value);
+      if (gvCode) {
+        embed.addFields({ name: '🎁 Gift Voucher Unlocked!', value: `You've earned a **$${tier.reward.value} Gift Voucher**!\n\nYour code: \`${gvCode}\`\n\nUse it at checkout on [thepaganshoponline.com](https://www.thepaganshoponline.com) — valid for 1 year! 🛍️` });
+        await member.send({ embeds: [embed] }).catch(() => {});
+        // Also email Billy so he knows
+        const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
+        if (billy) await billy.send(`🏆 **Auto Gift Voucher Issued!**\n**Member:** ${username}\n**Level:** ${tier.level} (${tier.name})\n**Voucher:** \`${gvCode}\` ($${tier.reward.value})\n\nThis was sent to them automatically — no action needed!`).catch(() => {});
+      } else {
+        // Fallback if voucher generation fails
+        embed.addFields({ name: '🎁 Grand Milestone Reward!', value: `You've earned a **$${tier.reward.value} Gift Card**! Billy will contact you within 48 hours.` });
+        await member.send({ embeds: [embed] }).catch(() => {});
+        const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
+        if (billy) await billy.send(`🏆 **Grand Milestone!** ${username} reached Level ${tier.level} (${tier.name}) — $${tier.reward.value} gift card owed! Auto-voucher failed, please contact them manually.`).catch(() => {});
+      }
     } else {
       await member.send({ embeds: [embed] }).catch(() => {});
     }
@@ -1129,6 +1176,8 @@ client.on('messageCreate', async (message) => {
     if (lower.startsWith('!keep')) { const args = content.slice(5).trim().split(/\s+/); await handleKeep(message, args); return; }
     if (lower.startsWith('!ask ')) { await handleAsk(message, content.slice(5).trim()); return; }
     if (lower === '!invite' || lower === '!referral') { await handleInvite(message); return; }
+    if (lower.startsWith('!award')) { await handleAward(message, content.slice(6).trim()); return; }
+    if (lower === '!syncrolesall') { await handleSyncRoles(message); return; }
     if (lower === '!class' || lower === '!classes') {
       const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
       const embed = makeEmbed('📚 Spirit Keeping Academy',
@@ -1884,3 +1933,43 @@ client.on('raw', async (packet) => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+// ─── !award command — Billy manually grants badges ────────
+async function handleAward(message, args) {
+  if (!db) return message.reply('Database required.');
+  // Only Billy (owner) can award
+  if (message.author.id !== CONFIG.OWNER_ID) return message.reply('❌ Only the server owner can award badges.');
+  const parts = args.split(/\s+/);
+  const badgeKey = parts[0];
+  const mention = message.mentions.members?.first();
+  if (!badgeKey || !mention) return message.reply('Usage: `!award <badge_key> @user`\n\nBadge keys: ' + Object.keys(BADGES_DEF).join(', '));
+  if (!BADGES_DEF[badgeKey]) return message.reply(`❌ Unknown badge: \`${badgeKey}\`\n\nValid keys: ${Object.keys(BADGES_DEF).join(', ')}`);
+  await awardBadge(mention.id, mention.user.username, badgeKey, message.guild);
+  const b = BADGES_DEF[badgeKey];
+  message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
+}
+
+// ─── !syncrolesall — assign Seeker to all existing members ─
+async function handleSyncRoles(message) {
+  if (message.author.id !== CONFIG.OWNER_ID) return message.reply('❌ Only the server owner can run this.');
+  const msg = await message.reply('⏳ Syncing Seeker role to all members without a level role...');
+  const guild = message.guild;
+  await guild.members.fetch();
+  const seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
+  if (!seekerRole) return msg.edit('❌ Seeker role not found. Restart the bot first to create it.');
+  const levelRoleNames = LEVELS.map(l => l.name);
+  let synced = 0;
+  let skipped = 0;
+  for (const [, member] of guild.members.cache) {
+    if (member.user.bot) continue;
+    if (await isExcludedFromXP(member)) { skipped++; continue; }
+    const hasLevelRole = member.roles.cache.some(r => levelRoleNames.includes(r.name));
+    if (!hasLevelRole) {
+      await member.roles.add(seekerRole).catch(() => {});
+      if (db) await dbEnsure(member.id, member.user.username);
+      synced++;
+      await new Promise(r => setTimeout(r, 300)); // rate limit
+    } else { skipped++; }
+  }
+  msg.edit(`✅ Done! Assigned Seeker role to **${synced}** members. Skipped **${skipped}** (already have a role or excluded).`);
+}
