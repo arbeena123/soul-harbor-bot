@@ -1132,6 +1132,54 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
+  // ── OWNER COMMANDS — run in ANY channel, no @mention needed ──
+  // Check this BEFORE shouldRespond so Billy doesn't need to @mention the bot
+  if (message.author.id === CONFIG.OWNER_ID && !content.startsWith('!')) {
+    const origLower = content.toLowerCase();
+    const targetMember = message.mentions.members?.find(m => m.id !== client.user.id) || null;
+
+    if (targetMember) {
+      const badgeMatch = origLower.match(/(?:give|award|grant|add)\s+([a-z][a-z\s_]+?)\s*(?:badge\s+)?(?:to\s+)?<@/);
+      const badgeMatchAlt = origLower.match(/(?:give|award|grant|add)\s+<@[^>]+>\s+(?:the\s+)?([a-z][a-z\s_]+?)\s*(?:badge)?$/);
+      const badgeInputRaw = badgeMatch ? badgeMatch[1] : (badgeMatchAlt ? badgeMatchAlt[1] : null);
+
+      if (badgeInputRaw) {
+        const badgeKey = badgeInputRaw.trim().replace(/\s+/g, '_');
+        if (BADGES_DEF[badgeKey]) {
+          await awardBadge(targetMember.id, targetMember.user.username, badgeKey, message.guild);
+          const b = BADGES_DEF[badgeKey];
+          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${targetMember}!`);
+          return;
+        }
+        const partialKey = Object.keys(BADGES_DEF).find(k =>
+          k === badgeKey || k.includes(badgeKey) || badgeKey.includes(k) ||
+          k.replace(/_/g, ' ') === badgeInputRaw.trim()
+        );
+        if (partialKey) {
+          await awardBadge(targetMember.id, targetMember.user.username, partialKey, message.guild);
+          const b = BADGES_DEF[partialKey];
+          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${targetMember}!`);
+          return;
+        }
+      }
+
+      // Shorthand — just badge name + @user, no verb needed
+      const shorthandKey = Object.keys(BADGES_DEF).find(k => origLower.includes(k.replace(/_/g, ' ')));
+      if (shorthandKey) {
+        await awardBadge(targetMember.id, targetMember.user.username, shorthandKey, message.guild);
+        const b = BADGES_DEF[shorthandKey];
+        message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${targetMember}!`);
+        return;
+      }
+    }
+
+    // Sync command natural language
+    if (origLower.match(/\bsync\b.*(all|roles|everyone|members)/)) {
+      await handleSyncRoles(message);
+      return;
+    }
+  }
+
   // ── NATURAL LANGUAGE INTENT DETECTION ──
   const isMentioned = message.mentions.has(client.user);
   const isDM = !message.guild;
