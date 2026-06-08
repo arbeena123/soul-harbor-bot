@@ -773,13 +773,16 @@ async function ensureAdminChannel(guild) {
   if (existing) return existing;
 
   try {
-    // Create the channel with permissions: only Billy can see it
+    // Fetch owner member so Discord.js recognizes them for permission overwrites
+    const ownerMember = await guild.members.fetch(CONFIG.OWNER_ID).catch(() => null);
+    if (!ownerMember) { console.log('Could not fetch owner for admin channel'); return null; }
+
     const adminChannel = await guild.channels.create({
       name: '🤖・soul-harbor-admin',
       type: 0,
       permissionOverwrites: [
         { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: CONFIG.OWNER_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        { id: ownerMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
       ],
       reason: 'Soul Harbor private admin reference channel',
     });
