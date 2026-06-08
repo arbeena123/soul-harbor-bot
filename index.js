@@ -858,10 +858,16 @@ client.on('guildMemberAdd', async (member) => {
 
   if (db) await dbEnsure(member.id, member.user.username);
 
-  const welcomeChannel = getChannel(guild, 'introductions') ||
+  // Find welcome channel — handles emoji-prefixed names like 👋・introductions
+  const welcomeChannel = (process.env.CHANNEL_WELCOME ? getChannel(guild, process.env.CHANNEL_WELCOME) : null) ||
+                         getChannel(guild, 'introductions') ||
                          getChannel(guild, 'welcome') ||
-                         getChannel(guild, 'general');
-  if (!welcomeChannel) { console.log('Welcome channel not found'); return; }
+                         getChannel(guild, 'general') ||
+                         guild.channels.cache.find(c => c.type === 0 && (
+                           c.name.toLowerCase().includes('intro') ||
+                           c.name.toLowerCase().includes('welcome')
+                         ));
+  if (!welcomeChannel) { console.log('Welcome channel not found — tried introductions, welcome, general'); return; }
   console.log(`✅ Sending welcome to ${member.user.username} in #${welcomeChannel.name}`);
 
   const embed = makeEmbed(
@@ -1000,10 +1006,22 @@ client.on('messageCreate', async (message) => {
   if (triviaActive.has(message.channel.id)) {
     const trivia = triviaActive.get(message.channel.id);
     const answerLower = trivia.answer.toLowerCase().trim();
-    const cleanedMsg = lower.replace(/^(the answer is|i think|i believe|is it|my answer is|answer:|it's|its)\s*/i, '').trim();
-    const isCorrect = cleanedMsg === answerLower || cleanedMsg.startsWith(answerLower) || cleanedMsg.includes(answerLower) ||
-                      lower === answerLower || lower.endsWith(' ' + answerLower) || lower.startsWith(answerLower + ' ') || lower.includes(' ' + answerLower + ' ');
-    console.log(`[TRIVIA] Expected: "${answerLower}" | Got: "${lower}" | Cleaned: "${cleanedMsg}" | Match: ${isCorrect}`);
+    // Strip common filler so "the answer is amethyst" → "amethyst"
+    const cleanedMsg = lower
+      .replace(/^(the answer is|i think|i believe|is it|my answer is|answer:|it's|its|i say|i guess)\s*/i, '')
+      .replace(/[^a-z0-9\s]/g, '') // strip punctuation
+      .trim();
+    const answerClean = answerLower.replace(/[^a-z0-9\s]/g, '').trim();
+    // Match: exact, starts with, ends with, or answer words all appear in message
+    const answerWords = answerClean.split(/\s+/);
+    const allWordsPresent = answerWords.every(w => cleanedMsg.includes(w));
+    const isCorrect = cleanedMsg === answerClean ||
+                      cleanedMsg.startsWith(answerClean) ||
+                      lower === answerLower ||
+                      lower.endsWith(' ' + answerLower) ||
+                      lower.startsWith(answerLower) ||
+                      allWordsPresent;
+    console.log(`[TRIVIA] Expected: "${answerClean}" | Got: "${cleanedMsg}" | AllWords: ${allWordsPresent} | Match: ${isCorrect}`);
     if (!trivia.winnerId && isCorrect) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
@@ -1131,44 +1149,51 @@ client.on('messageCreate', async (message) => {
     const cleanLower = cleanContent.toLowerCase();
 
     // ── OWNER NATURAL LANGUAGE ADMIN COMMANDS ────────────────
-    // Billy can just type naturally — no need to remember exact commands
+    // Use ORIGINAL content — we need @mentions intact for matching
     if (message.author.id === CONFIG.OWNER_ID) {
-      // "give/award/grant <badge> to @user" or "give @user <badge>"
-      const awardMatch = cleanLower.match(/(?:give|award|grant|add)\s+([a-z_\s]+?)\s+(?:badge\s+)?(?:to\s+)?<@!?\d+>/);
-      const awardMatchAlt = cleanLower.match(/(?:give|award|grant|add)\s+<@!?\d+>\s+(?:the\s+)?([a-z_\s]+?)\s*(?:badge)?$/);
+      const origLower = content.toLowerCase();
+      // Target = any mentioned member who is NOT the bot
+      const targetMember = message.mentions.members?.find(m => m.id !== client.user.id) || null;
 
-      const badgeInputRaw = awardMatch ? awardMatch[1] : (awardMatchAlt ? awardMatchAlt[1] : null);
-      if (badgeInputRaw && message.mentions.members?.first()) {
-        // Normalize badge name: "verified patron" → "verified_patron", "trivia master" → "trivia_master"
-        const badgeKey = badgeInputRaw.toLowerCase().trim().replace(/\s+/g, '_');
-        const mention = message.mentions.members.first();
-        if (BADGES_DEF[badgeKey]) {
-          await awardBadge(mention.id, mention.user.username, badgeKey, message.guild);
-          const b = BADGES_DEF[badgeKey];
-          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
-          return;
+      if (targetMember) {
+        // Match badge name: "@Soul Harbor give verified patron badge to @Nate44"
+        const badgeMatch = origLower.match(/(?:give|award|grant|add)\s+([a-z][a-z\s_]+?)\s*(?:badge\s+)?(?:to\s+)?<@/);
+        const badgeMatchAlt = origLower.match(/(?:give|award|grant|add)\s+<@[^>]+>\s+(?:the\s+)?([a-z][a-z\s_]+?)\s*(?:badge)?$/);
+        const badgeInputRaw = badgeMatch ? badgeMatch[1] : (badgeMatchAlt ? badgeMatchAlt[1] : null);
+
+        if (badgeInputRaw) {
+          const badgeKey = badgeInputRaw.trim().replace(/\s+/g, '_');
+          if (BADGES_DEF[badgeKey]) {
+            await awardBadge(targetMember.id, targetMember.user.username, badgeKey, message.guild);
+            const b = BADGES_DEF[badgeKey];
+            message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${targetMember}!`);
+            return;
+          }
+          const partialKey = Object.keys(BADGES_DEF).find(k =>
+            k === badgeKey || k.includes(badgeKey) || badgeKey.includes(k) ||
+            k.replace(/_/g, ' ') === badgeInputRaw.trim()
+          );
+          if (partialKey) {
+            await awardBadge(targetMember.id, targetMember.user.username, partialKey, message.guild);
+            const b = BADGES_DEF[partialKey];
+            message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${targetMember}!`);
+            return;
+          }
         }
-        // Try partial match if exact key not found
-        const partialKey = Object.keys(BADGES_DEF).find(k => k.includes(badgeKey) || badgeKey.includes(k.replace(/_/g, ' ')));
-        if (partialKey) {
-          await awardBadge(mention.id, mention.user.username, partialKey, message.guild);
-          const b = BADGES_DEF[partialKey];
-          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
+
+        // Shorthand — just badge name + @user, no verb needed
+        const shorthandKey = Object.keys(BADGES_DEF).find(k => origLower.includes(k.replace(/_/g, ' ')));
+        if (shorthandKey) {
+          await awardBadge(targetMember.id, targetMember.user.username, shorthandKey, message.guild);
+          const b = BADGES_DEF[shorthandKey];
+          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${targetMember}!`);
           return;
         }
       }
 
-      // "sync roles" / "sync all" / "sync everyone" / "sync all roles"
-      if (cleanLower.match(/\bsync\b.*(all|roles|everyone|members)/)) {
+      // "sync roles" / "sync all" / "sync everyone"
+      if (origLower.match(/\bsync\b.*(all|roles|everyone|members)/)) {
         await handleSyncRoles(message);
-        return;
-      }
-
-      // Shorthand: just "verified patron @user" without give/award verb
-      if (cleanLower.includes('verified patron') && message.mentions.members?.first()) {
-        const mention = message.mentions.members.first();
-        await awardBadge(mention.id, mention.user.username, 'verified_patron', message.guild);
-        message.reply(`✅ Awarded **✅ Verified Patron** to ${mention}!`);
         return;
       }
     }
