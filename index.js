@@ -160,25 +160,79 @@ async function addXP(userId, username, amount, guild) {
   }
 }
 
+// Role colors for each level
+const LEVEL_ROLE_COLORS = {
+  'Seeker':       0x888888,  // Grey
+  'Initiate':     0x8B4513,  // Brown
+  'Neophyte':     0x228B22,  // Green
+  'Practitioner': 0x1E90FF,  // Blue
+  'Mystic':       0x7B2FBE,  // Purple
+  'Magus':        0xFF8C00,  // Orange
+  'Elder':        0xFF0000,  // Red
+  'Grandmaster':  0xFFD700,  // Gold
+};
+
+async function ensureLevelRoles(guild) {
+  for (const tier of LEVELS) {
+    const existing = guild.roles.cache.find(r => r.name === tier.name);
+    if (!existing) {
+      try {
+        await guild.roles.create({
+          name: tier.name,
+          color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
+          reason: 'Soul Harbor XP level role',
+          hoist: true, // show separately in member list
+        });
+        console.log(`✅ Created role: ${tier.name}`);
+        await new Promise(r => setTimeout(r, 500));
+      } catch(e) { console.error(`Failed to create role ${tier.name}:`, e.message); }
+    }
+  }
+}
+
 async function handleLevelUp(userId, username, tier, guild) {
   try {
     const member = await guild.members.fetch(userId);
-    // Swap roles
+
+    // Remove all old level roles
     const oldRoles = LEVELS.map(l => guild.roles.cache.find(r => r.name === l.name)).filter(Boolean);
     await member.roles.remove(oldRoles).catch(() => {});
-    const newRole = guild.roles.cache.find(r => r.name === tier.name);
+
+    // Add new level role — create it if missing
+    let newRole = guild.roles.cache.find(r => r.name === tier.name);
+    if (!newRole) {
+      newRole = await guild.roles.create({
+        name: tier.name,
+        color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
+        reason: 'Soul Harbor XP level role',
+        hoist: true,
+      }).catch(() => null);
+    }
     if (newRole) await member.roles.add(newRole).catch(() => {});
 
+    // Announce level up in general channel
+    const generalChannel = getChannel(guild, CONFIG.CHANNELS.GENERAL);
+    if (generalChannel) {
+      const announceEmbed = new EmbedBuilder()
+        .setColor(LEVEL_ROLE_COLORS[tier.name] || 0x7B2FBE)
+        .setTitle(`🌟 Level Up!`)
+        .setDescription(`🎉 Congratulations ${member}! You are now a **${tier.name}**!\n\nKeep earning XP to unlock more rewards! Type \`!profile\` to see your stats.`)
+        .setThumbnail(member.user.displayAvatarURL())
+        .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
+        .setTimestamp();
+      generalChannel.send({ embeds: [announceEmbed] }).catch(() => {});
+    }
+
     const embed = new EmbedBuilder()
-      .setColor(0x7B2FBE)
+      .setColor(LEVEL_ROLE_COLORS[tier.name] || 0x7B2FBE)
       .setTitle(`🌟 Level Up! You are now a ${tier.name}`)
-      .setDescription(`Congratulations **${username}**! You've reached **Level ${tier.level}** in Soul Harbor.`)
+      .setDescription(`Congratulations **${username}**! You've reached **Level ${tier.level}** in Soul Harbor.\n\nYour role color has been updated — other members can now see your rank! 🎖️`)
       .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
       .setTimestamp();
 
     if (tier.reward?.type === 'discount') {
       const code = genCode('SOUL');
-      await saveCouponToShop(code); // ADD THIS
+      await saveCouponToShop(code, tier.reward.pct);
       embed.addFields({ name: '🎁 Reward Unlocked!', value: `Here is your **${tier.reward.pct}% off** coupon for The Pagan Shop Online!\n\`${code}\`\n[Shop Now](https://www.thepaganshoponline.com)` });
       await member.send({ embeds: [embed] }).catch(() => {});
     } else if (tier.reward?.type === 'giftcard') {
@@ -186,6 +240,8 @@ async function handleLevelUp(userId, username, tier, guild) {
       await member.send({ embeds: [embed] }).catch(() => {});
       const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
       if (billy) await billy.send(`🏆 **Grand Milestone!** ${username} reached Level ${tier.level} (${tier.name}) — $${tier.reward.value} gift card owed! Please contact them within 48 hours.`).catch(() => {});
+    } else {
+      await member.send({ embeds: [embed] }).catch(() => {});
     }
   } catch(e) { console.error('LevelUp error:', e.message); }
 }
@@ -255,7 +311,124 @@ async function handleKeep(message, args) {
     return message.author.send({ embeds: [embed] }).catch(() => message.reply(rows.map(r=>`🌟 **${r.spirit_name}** — ${r.c} entries`).join('\n')));
   }
 
-  return message.reply('Commands: `!keep add <spirit> <note>` · `!keep view [spirit]` · `!keep list`');
+  if (sub === 'upload') {
+    // Handle document/text file upload via DM
+    const spiritName = args[1];
+    if (!spiritName) return message.reply('Usage: `!keep upload <spirit name>` then attach a .txt file');
+    const attachment = message.attachments.first();
+    if (!attachment) return message.reply('Please attach a .txt or document file with your journal entry.');
+    try {
+      const response = await fetch(attachment.url);
+      const text = await response.text();
+      if (text.length > 4000) return message.reply('File too large — please keep entries under 4000 characters.');
+      await db.query('INSERT INTO spirit_keep (user_id, spirit_name, content) VALUES ($1,$2,$3)', [userId, spiritName, text.substring(0, 4000)]);
+      const embed = new EmbedBuilder().setColor(0x4A0E8F)
+        .setTitle(`📖 Document Saved to Keep — ${spiritName}`)
+        .setDescription(`${text.substring(0, 200)}${text.length > 200 ? '...' : ''}`)
+        .setFooter({ text: 'Your Keep is private. Only you can see it.' }).setTimestamp();
+      return message.author.send({ embeds: [embed] }).catch(() => message.reply('✅ Document saved to your Spirit Keep!'));
+    } catch(e) {
+      return message.reply('❌ Could not read the file. Please send a plain text (.txt) file.');
+    }
+  }
+
+  return message.reply('Commands: `!keep add <spirit> <note>` · `!keep upload <spirit>` (attach file) · `!keep view [spirit]` · `!keep list`');
+}
+
+// ─── Handle voice memo in DM for Spirit Keep ─────────────
+async function handleVoiceMemo(message) {
+  if (!db) return;
+  const attachment = message.attachments.first();
+  if (!attachment) return;
+  
+  // Check if it's an audio file
+  const isAudio = attachment.contentType?.startsWith('audio/') || 
+                  attachment.name?.match(/\.(mp3|ogg|wav|m4a|webm)$/i);
+  if (!isAudio) return;
+
+  await message.reply('🎙️ *Transcribing your voice memo...*');
+  
+  try {
+    // Download audio
+    const audioResponse = await fetch(attachment.url);
+    const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+    const tempFile = `/tmp/voice_${message.author.id}_${Date.now()}.ogg`;
+    require('fs').writeFileSync(tempFile, audioBuffer);
+
+    // Transcribe with Whisper
+    const { default: FormData } = await import('form-data');
+    const form = new FormData();
+    form.append('file', require('fs').createReadStream(tempFile), { filename: 'audio.ogg', contentType: 'audio/ogg' });
+    form.append('model', 'whisper-1');
+
+    const transcription = await getOpenAI().audio.transcriptions.create({
+      file: require('fs').createReadStream(tempFile),
+      model: 'whisper-1',
+    });
+
+    require('fs').unlinkSync(tempFile);
+
+    if (!transcription.text) return message.reply('❌ Could not transcribe audio. Please try again.');
+
+    // Ask which spirit this is for
+    await message.reply(`✅ Transcribed: *"${transcription.text.substring(0, 200)}${transcription.text.length > 200 ? '...' : ''}"*\n\nReply with: \`!keep add <spirit name> ${transcription.text.substring(0, 100)}\` to save this to your Keep, or type the spirit name to auto-save:`);
+    
+    // Auto-save to a general "Voice Notes" spirit
+    await db.query('INSERT INTO spirit_keep (user_id, spirit_name, content) VALUES ($1,$2,$3)', 
+      [message.author.id, 'Voice Notes', transcription.text]);
+    
+    const embed = new EmbedBuilder().setColor(0x4A0E8F)
+      .setTitle('🎙️ Voice Memo Saved to Keep')
+      .setDescription(transcription.text.substring(0, 500))
+      .setFooter({ text: 'Saved under "Voice Notes" — use !keep view "Voice Notes" to read' })
+      .setTimestamp();
+    message.author.send({ embeds: [embed] }).catch(() => {});
+
+  } catch(e) {
+    console.error('Voice transcription error:', e.message);
+    message.reply('❌ Voice transcription failed. Please try typing your note with `!keep add <spirit> <note>`');
+  }
+}
+
+// ─── Invite / Referral tracking ──────────────────────────
+async function handleInvite(message) {
+  if (!db) return message.reply('🔮 Invite tracking requires a database.');
+  const userId = message.author.id;
+  const username = message.author.username;
+  await dbEnsure(userId, username);
+
+  try {
+    // Create a server invite
+    const channel = message.channel;
+    const invite = await message.guild.invites.create(channel, {
+      maxAge: 0,        // never expires
+      maxUses: 0,       // unlimited uses
+      unique: true,
+      reason: `Referral invite for ${username}`,
+    });
+
+    // Store invite in DB
+    await db.query(`CREATE TABLE IF NOT EXISTS invite_links (
+      code TEXT PRIMARY KEY,
+      inviter_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`).catch(() => {});
+    
+    await db.query('INSERT INTO invite_links (code, inviter_id) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING', 
+      [invite.code, userId]);
+
+    const embed = new EmbedBuilder().setColor(0x7B2FBE)
+      .setTitle('🔗 Your Personal Invite Link')
+      .setDescription(`Share this link to invite friends to Soul Harbor!\n\n**Your invite link:**\nhttps://discord.gg/${invite.code}\n\nWhen someone joins using your link you'll earn **100 XP**! After they stay for 48 hours it's confirmed.\n\n👋 Refer 3 friends → **Greeter** badge\n🌙 Refer 10 friends → **Coven Builder** badge\n👑 Refer 25 friends → **High Priest/ess** badge`)
+      .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
+      .setTimestamp();
+    
+    message.author.send({ embeds: [embed] }).catch(() => message.reply(`Your invite link: https://discord.gg/${invite.code}`));
+    message.reply('✅ Your personal invite link has been sent to your DMs! 🔗');
+  } catch(e) {
+    console.error('Invite creation error:', e.message);
+    message.reply('❌ Could not create invite link. Make sure I have permission to create invites.');
+  }
 }
 
 // ─── PHASE 2: Profile & Leaderboard ──────────────────────
@@ -587,6 +760,9 @@ client.once('ready', async () => {
   client.user.setActivity('🔮 Watching over the spirits...', { type: 3 });
   await initDB();
   await loadTriviaHistory();
+  // Ensure all level roles exist with correct colors
+  const guild = client.guilds.cache.get(process.env.GUILD_ID);
+  if (guild) await ensureLevelRoles(guild);
   scheduleDailyTasks();
 });
 
@@ -654,15 +830,66 @@ client.on('guildMemberAdd', async (member) => {
 
   // Track invites for invite rewards
   try {
-    const invites = await guild.invites.fetch();
-    inviteTracker.set('snapshot', invites);
-  } catch {}
+    const newInvites = await guild.invites.fetch();
+    const oldSnapshot = inviteTracker.get('snapshot');
+    
+    if (oldSnapshot) {
+      // Find which invite was used
+      newInvites.forEach(async (invite) => {
+        const oldInvite = oldSnapshot.get(invite.code);
+        if (oldInvite && invite.uses > oldInvite.uses) {
+          // This invite was used — find who created it
+          if (db) {
+            const res = await db.query('SELECT inviter_id FROM invite_links WHERE code=$1', [invite.code]).catch(() => null);
+            if (res && res.rows.length > 0) {
+              const inviterId = res.rows[0].inviter_id;
+              await db.query('INSERT INTO referrals (inviter_id, invitee_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', 
+                [inviterId, member.id]).catch(() => {});
+              console.log(`✅ Referral tracked: ${inviterId} invited ${member.id}`);
+            }
+          }
+        }
+      });
+    }
+    inviteTracker.set('snapshot', newInvites);
+  } catch(e) { console.log('Invite tracking error:', e.message); }
 });
 
 // ─── MESSAGE HANDLER ─────────────────────────────────────
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-  if (!message.guild) return;
+
+  // ── Handle DM attachments (voice memos & documents) ──
+  if (!message.guild && message.attachments.size > 0) {
+    const attachment = message.attachments.first();
+    const isAudio = attachment.contentType?.startsWith('audio/') || 
+                    attachment.name?.match(/\.(mp3|ogg|wav|m4a|webm)$/i);
+    const isText  = attachment.contentType?.startsWith('text/') || 
+                    attachment.name?.match(/\.(txt|md|doc)$/i);
+    
+    if (isAudio) {
+      await handleVoiceMemo(message);
+      return;
+    }
+    if (isText) {
+      // Auto-save text file — ask for spirit name
+      await message.reply('📄 I can save this to your Spirit Keep! Reply with:\n`!keep upload <spirit name>` and attach the file again.');
+      return;
+    }
+  }
+
+  if (!message.guild) {
+    // Handle DM !keep upload with attachment
+    const content = message.content.trim();
+    const lower = content.toLowerCase();
+    if (lower.startsWith('!keep upload') && message.attachments.size > 0) {
+      const args = content.slice(5).trim().split(/\s+/);
+      await handleKeep(message, args);
+      return;
+    }
+  }
+
+  if (!message.guild) return; // let raw handler deal with other DMs
 
   const content = message.content.trim();
   const lower = content.toLowerCase();
@@ -875,6 +1102,7 @@ client.on('messageCreate', async (message) => {
     if (lower === '!leaderboard' || lower === '!lb') { await handleLeaderboard(message); return; }
     if (lower.startsWith('!keep')) { const args = content.slice(5).trim().split(/\s+/); await handleKeep(message, args); return; }
     if (lower.startsWith('!ask ')) { await handleAsk(message, content.slice(5).trim()); return; }
+    if (lower === '!invite' || lower === '!referral') { await handleInvite(message); return; }
     if (lower === '!class' || lower === '!classes') {
       const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
       const embed = makeEmbed('📚 Spirit Keeping Academy',
@@ -1293,8 +1521,12 @@ async function handleHelp(message) {
     '`!leaderboard` — Top 10 members by XP\n\n' +
     '**📖 Spirit Keep (Private Journal):**\n' +
     '`!keep add <spirit> <note>` — Add a journal entry\n' +
+    '`!keep upload <spirit>` — Upload a text file as journal entry\n' +
     '`!keep view [spirit]` — Read your journal (DM\'d to you)\n' +
-    '`!keep list` — See all your spirits\n\n' +
+    '`!keep list` — See all your spirits\n' +
+    '🎙️ Send a **voice memo** in DMs to auto-save to Keep!\n\n' +
+    '**🔗 Referrals:**\n' +
+    '`!invite` — Get your personal invite link (+100 XP per referral)\n\n' +
     '**🎖️ Badges:**\n' +
     '`!badges` — See your earned badges\n' +
     '`!allbadges` — See all available achievement badges\n' +
