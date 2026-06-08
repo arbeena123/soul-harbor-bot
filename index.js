@@ -53,7 +53,6 @@ async function initDB() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  // Add new columns to existing tables without losing data (safe to run every boot)
   const newCols = [
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS manifestation_posts INTEGER DEFAULT 0`,
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS paranormal_posts INTEGER DEFAULT 0`,
@@ -63,24 +62,19 @@ async function initDB() {
   console.log('✅ Phase 2 database ready');
 }
 
-// ─── PHASE 2: XP / LEVEL SYSTEM ──────────────────────────
 const XP_VALUES = {
-  // LOW — just being here
-  chat:                    2,   // per message, rate-limited 1 per 60s
-  // MEDIUM — interacting with Soul Harbor
-  soul_harbor_tarot:      15,   // asking Soul Harbor for a reading
-  soul_harbor_ask:        10,   // using !ask
-  soul_harbor_horoscope:   8,   // using !horoscope
-  soul_harbor_ghost:       8,   // requesting a ghost story
-  // HIGH — content that takes real effort
-  altar_pic:              50,   // post in #spirit-altars
-  manifestation_pic:      50,   // post in #spirit-manifestations
-  spell_post:             60,   // post in #spell-sharing or #magical-concoctions
-  paranormal_story:       75,   // post in #paranormal-stories (text, high effort)
-  trivia_win:             75,   // win the daily trivia
-  class_attend:           40,   // attend a Wednesday class
-  // HIGHEST — community growth
-  referral:              100,   // confirmed referral (48h hold)
+  chat:                    2,
+  soul_harbor_tarot:      15,
+  soul_harbor_ask:        10,
+  soul_harbor_horoscope:   8,
+  soul_harbor_ghost:       8,
+  altar_pic:              50,
+  manifestation_pic:      50,
+  spell_post:             60,
+  paranormal_story:       75,
+  trivia_win:             75,
+  class_attend:           40,
+  referral:              100,
 };
 
 const LEVELS = [
@@ -136,8 +130,6 @@ function genCode(prefix = 'SOUL') {
   return `${prefix}${Date.now().toString(36).toUpperCase()}`;
 }
 
-
-// ─── Exclude owner/admins/mods from XP system ────────────
 async function isExcludedFromXP(member) {
   if (!member) return false;
   if (member.guild.ownerId === member.id) return true;
@@ -147,7 +139,6 @@ async function isExcludedFromXP(member) {
   return false;
 }
 
-// ─── Auto gift voucher for Elder/Grandmaster ─────────────
 async function generateGiftVoucher(value) {
   try {
     const code = "GV-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).substr(2,4).toUpperCase();
@@ -161,6 +152,7 @@ async function generateGiftVoucher(value) {
     return null;
   } catch(e) { console.error("Gift voucher error:", e.message); return null; }
 }
+
 async function dbEnsure(userId, username) {
   if (!db) return;
   await db.query(`INSERT INTO members (user_id, username) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET username=$2`, [userId, username]);
@@ -173,7 +165,6 @@ async function dbGet(userId) {
 
 async function addXP(userId, username, amount, guild) {
   if (!db) return;
-  // Skip owner/admins/mods
   try {
     const member = await guild.members.fetch(userId);
     if (await isExcludedFromXP(member)) return;
@@ -190,16 +181,15 @@ async function addXP(userId, username, amount, guild) {
   }
 }
 
-// Role colors for each level
 const LEVEL_ROLE_COLORS = {
-  'Seeker':       0x888888,  // Grey
-  'Initiate':     0x8B4513,  // Brown
-  'Neophyte':     0x228B22,  // Green
-  'Practitioner': 0x1E90FF,  // Blue
-  'Mystic':       0x7B2FBE,  // Purple
-  'Magus':        0xFF8C00,  // Orange
-  'Elder':        0xFF0000,  // Red
-  'Grandmaster':  0xFFD700,  // Gold
+  'Seeker':       0x888888,
+  'Initiate':     0x8B4513,
+  'Neophyte':     0x228B22,
+  'Practitioner': 0x1E90FF,
+  'Mystic':       0x7B2FBE,
+  'Magus':        0xFF8C00,
+  'Elder':        0xFF0000,
+  'Grandmaster':  0xFFD700,
 };
 
 async function ensureLevelRoles(guild) {
@@ -209,7 +199,7 @@ async function ensureLevelRoles(guild) {
       try {
         await guild.roles.create({
           name: tier.name,
-          colors: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
+          color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
           reason: 'Soul Harbor XP level role',
           hoist: true,
         });
@@ -223,30 +213,22 @@ async function ensureLevelRoles(guild) {
 async function handleLevelUp(userId, username, tier, guild) {
   try {
     const member = await guild.members.fetch(userId);
+    if (await isExcludedFromXP(member)) { console.log(`Skipping level up rewards for excluded user: ${username}`); return; }
 
-    // Skip owner, admins, mods
-    if (await isExcludedFromXP(member)) {
-      console.log(`Skipping level up rewards for excluded user: ${username}`);
-      return;
-    }
-
-    // Remove all old level roles
     const oldRoles = LEVELS.map(l => guild.roles.cache.find(r => r.name === l.name)).filter(Boolean);
     await member.roles.remove(oldRoles).catch(() => {});
 
-    // Add new level role — create it if missing
     let newRole = guild.roles.cache.find(r => r.name === tier.name);
     if (!newRole) {
       newRole = await guild.roles.create({
         name: tier.name,
-        colors: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
+        color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
         reason: 'Soul Harbor XP level role',
         hoist: true,
       }).catch(() => null);
     }
     if (newRole) await member.roles.add(newRole).catch(() => {});
 
-    // Announce level up in general channel
     const generalChannel = getChannel(guild, CONFIG.CHANNELS.GENERAL);
     if (generalChannel) {
       const announceEmbed = new EmbedBuilder()
@@ -272,16 +254,13 @@ async function handleLevelUp(userId, username, tier, guild) {
       embed.addFields({ name: '🎁 Reward Unlocked!', value: `Here is your **${tier.reward.pct}% off** coupon for The Pagan Shop Online!\n\`${code}\`\n[Shop Now](https://www.thepaganshoponline.com)` });
       await member.send({ embeds: [embed] }).catch(() => {});
     } else if (tier.reward?.type === 'giftcard') {
-      // AUTO-GENERATE gift voucher — no manual action needed from Billy
       const gvCode = await generateGiftVoucher(tier.reward.value);
       if (gvCode) {
         embed.addFields({ name: '🎁 Gift Voucher Unlocked!', value: `You've earned a **$${tier.reward.value} Gift Voucher**!\n\nYour code: \`${gvCode}\`\n\nUse it at checkout on [thepaganshoponline.com](https://www.thepaganshoponline.com) — valid for 1 year! 🛍️` });
         await member.send({ embeds: [embed] }).catch(() => {});
-        // Also email Billy so he knows
         const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
         if (billy) await billy.send(`🏆 **Auto Gift Voucher Issued!**\n**Member:** ${username}\n**Level:** ${tier.level} (${tier.name})\n**Voucher:** \`${gvCode}\` ($${tier.reward.value})\n\nThis was sent to them automatically — no action needed!`).catch(() => {});
       } else {
-        // Fallback if voucher generation fails
         embed.addFields({ name: '🎁 Grand Milestone Reward!', value: `You've earned a **$${tier.reward.value} Gift Card**! Billy will contact you within 48 hours.` });
         await member.send({ embeds: [embed] }).catch(() => {});
         const billy = await guild.client.users.fetch(CONFIG.OWNER_ID).catch(() => null);
@@ -310,7 +289,6 @@ async function awardBadge(userId, username, key, guild) {
   } catch(_) {}
 }
 
-// ─── PHASE 2: Spirit Keeper's Keep ───────────────────────
 async function handleKeep(message, args) {
   if (!db) return message.reply('🔮 The Spirit Keep requires a database — ask your admin to add PostgreSQL on Railway.');
   const userId = message.author.id;
@@ -359,7 +337,6 @@ async function handleKeep(message, args) {
   }
 
   if (sub === 'upload') {
-    // Handle document/text file upload via DM
     const spiritName = args[1];
     if (!spiritName) return message.reply('Usage: `!keep upload <spirit name>` then attach a .txt file');
     const attachment = message.attachments.first();
@@ -382,94 +359,52 @@ async function handleKeep(message, args) {
   return message.reply('Commands: `!keep add <spirit> <note>` · `!keep upload <spirit>` (attach file) · `!keep view [spirit]` · `!keep list`');
 }
 
-// ─── Handle voice memo in DM for Spirit Keep ─────────────
 async function handleVoiceMemo(message) {
   if (!db) return;
   const attachment = message.attachments.first();
   if (!attachment) return;
-  
-  // Check if it's an audio file
-  const isAudio = attachment.contentType?.startsWith('audio/') || 
-                  attachment.name?.match(/\.(mp3|ogg|wav|m4a|webm)$/i);
+  const isAudio = attachment.contentType?.startsWith('audio/') || attachment.name?.match(/\.(mp3|ogg|wav|m4a|webm)$/i);
   if (!isAudio) return;
-
   await message.reply('🎙️ *Transcribing your voice memo...*');
-  
   try {
-    // Download audio
     const audioResponse = await fetch(attachment.url);
     const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
     const tempFile = `/tmp/voice_${message.author.id}_${Date.now()}.ogg`;
     require('fs').writeFileSync(tempFile, audioBuffer);
-
-    // Transcribe with Whisper
-    const { default: FormData } = await import('form-data');
-    const form = new FormData();
-    form.append('file', require('fs').createReadStream(tempFile), { filename: 'audio.ogg', contentType: 'audio/ogg' });
-    form.append('model', 'whisper-1');
-
     const transcription = await getOpenAI().audio.transcriptions.create({
       file: require('fs').createReadStream(tempFile),
       model: 'whisper-1',
     });
-
     require('fs').unlinkSync(tempFile);
-
     if (!transcription.text) return message.reply('❌ Could not transcribe audio. Please try again.');
-
-    // Ask which spirit this is for
     await message.reply(`✅ Transcribed: *"${transcription.text.substring(0, 200)}${transcription.text.length > 200 ? '...' : ''}"*\n\nReply with: \`!keep add <spirit name> ${transcription.text.substring(0, 100)}\` to save this to your Keep, or type the spirit name to auto-save:`);
-    
-    // Auto-save to a general "Voice Notes" spirit
-    await db.query('INSERT INTO spirit_keep (user_id, spirit_name, content) VALUES ($1,$2,$3)', 
-      [message.author.id, 'Voice Notes', transcription.text]);
-    
+    await db.query('INSERT INTO spirit_keep (user_id, spirit_name, content) VALUES ($1,$2,$3)', [message.author.id, 'Voice Notes', transcription.text]);
     const embed = new EmbedBuilder().setColor(0x4A0E8F)
       .setTitle('🎙️ Voice Memo Saved to Keep')
       .setDescription(transcription.text.substring(0, 500))
       .setFooter({ text: 'Saved under "Voice Notes" — use !keep view "Voice Notes" to read' })
       .setTimestamp();
     message.author.send({ embeds: [embed] }).catch(() => {});
-
   } catch(e) {
     console.error('Voice transcription error:', e.message);
     message.reply('❌ Voice transcription failed. Please try typing your note with `!keep add <spirit> <note>`');
   }
 }
 
-// ─── Invite / Referral tracking ──────────────────────────
 async function handleInvite(message) {
   if (!db) return message.reply('🔮 Invite tracking requires a database.');
   const userId = message.author.id;
   const username = message.author.username;
   await dbEnsure(userId, username);
-
   try {
-    // Create a server invite
     const channel = message.channel;
-    const invite = await message.guild.invites.create(channel, {
-      maxAge: 0,        // never expires
-      maxUses: 0,       // unlimited uses
-      unique: true,
-      reason: `Referral invite for ${username}`,
-    });
-
-    // Store invite in DB
-    await db.query(`CREATE TABLE IF NOT EXISTS invite_links (
-      code TEXT PRIMARY KEY,
-      inviter_id TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )`).catch(() => {});
-    
-    await db.query('INSERT INTO invite_links (code, inviter_id) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING', 
-      [invite.code, userId]);
-
+    const invite = await message.guild.invites.create(channel, { maxAge: 0, maxUses: 0, unique: true, reason: `Referral invite for ${username}` });
+    await db.query(`CREATE TABLE IF NOT EXISTS invite_links (code TEXT PRIMARY KEY, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    await db.query('INSERT INTO invite_links (code, inviter_id) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING', [invite.code, userId]);
     const embed = new EmbedBuilder().setColor(0x7B2FBE)
       .setTitle('🔗 Your Personal Invite Link')
       .setDescription(`Share this link to invite friends to Soul Harbor!\n\n**Your invite link:**\nhttps://discord.gg/${invite.code}\n\nWhen someone joins using your link you'll earn **100 XP**! After they stay for 48 hours it's confirmed.\n\n👋 Refer 3 friends → **Greeter** badge\n🌙 Refer 10 friends → **Coven Builder** badge\n👑 Refer 25 friends → **High Priest/ess** badge`)
-      .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
-      .setTimestamp();
-    
+      .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
     message.author.send({ embeds: [embed] }).catch(() => message.reply(`Your invite link: https://discord.gg/${invite.code}`));
     message.reply('✅ Your personal invite link has been sent to your DMs! 🔗');
   } catch(e) {
@@ -478,7 +413,6 @@ async function handleInvite(message) {
   }
 }
 
-// ─── PHASE 2: Profile & Leaderboard ──────────────────────
 async function handleProfile(message) {
   if (!db) return message.reply('🔮 Profile system requires a database. Ask your admin to add PostgreSQL on Railway.');
   const target = message.mentions.members?.first() || message.member;
@@ -533,17 +467,14 @@ async function handleXP(message) {
   message.reply(`✦ **${message.author.username}** — ${tier.name} · Level ${tier.level} · **${m.xp} XP**${next ? ` · ${needed} XP needed for ${next.name}` : ' · MAX LEVEL 👑'}`);
 }
 
-// ─── PHASE 2: Classes ────────────────────────────────────
 async function runWeeklyClass(guild) {
   const channel = guild.channels.cache.find(c => {
     const n = c.name.toLowerCase();
     return c.type === 0 && (n.includes('class') || n.includes('study') || n.includes('education') || n.includes('learn'));
   });
   if (!channel) { console.log('No class channel found'); return; }
-
   const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
   const topic = CLASS_TOPICS[topicIdx];
-
   const announceEmbed = new EmbedBuilder().setColor(0x7B2FBE)
     .setTitle(`📚 Spirit Keeping Class Starting: ${topic}`)
     .setDescription('Soul Harbor is now teaching!\n\nReact with 📖 to mark attendance and earn **30 XP**!\n\nClass begins in **2 minutes**...')
@@ -551,19 +482,16 @@ async function runWeeklyClass(guild) {
   const msg = await channel.send({ embeds: [announceEmbed] });
   await msg.react('📖');
   await new Promise(r => setTimeout(r, 120_000));
-
   const reaction = msg.reactions.cache.get('📖');
   let attendees = [];
   if (reaction) {
     const users = await reaction.users.fetch();
     attendees = users.filter(u => !u.bot).map(u => u.id);
   }
-
   const lesson = await askGPT([
     { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
     { role: 'user', content: `Teach a spirit keeping class on: "${topic}". Format with sections: Introduction, The Teaching, Practice Exercise, Closing Reflection. 600-800 words. Warm, educational, mystical tone.` }
   ], 1200);
-
   if (lesson) {
     const lessonEmbed = new EmbedBuilder().setColor(0x7B2FBE)
       .setTitle(`📚 ${topic}`)
@@ -571,13 +499,11 @@ async function runWeeklyClass(guild) {
       .setFooter({ text: `Soul Harbor Spirit Keeping Academy • ${attendees.length} students attending` }).setTimestamp();
     await channel.send({ embeds: [lessonEmbed] });
   }
-
   const qaEmbed = new EmbedBuilder().setColor(0xC850C0)
     .setTitle('❓ Q&A Time — 15 Minutes')
     .setDescription('Ask your questions! Use `!ask <your question>` for a direct response from Soul Harbor.')
     .setTimestamp();
   await channel.send({ embeds: [qaEmbed] });
-
   if (db) {
     for (const uid of attendees) {
       try {
@@ -592,10 +518,8 @@ async function runWeeklyClass(guild) {
   }
 }
 
-// ─── PHASE 2: !ask command ───────────────────────────────
 async function handleAsk(message, question) {
   if (!question) return message.reply('Usage: `!ask <your question>`');
-  // Soul Harbor interaction XP
   if (db) {
     await dbEnsure(message.author.id, message.author.username);
     await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_ask, message.guild);
@@ -630,7 +554,6 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message, Partials.User]
 });
 
-// Lazy init — Railway injects env vars before login, but after module load
 let openai;
 function getOpenAI() {
   if (!openai) {
@@ -641,10 +564,9 @@ function getOpenAI() {
   return openai;
 }
 
-// ─── CONFIG ───────────────────────────────────────────────
 const CONFIG = {
   GUILD_ID: process.env.GUILD_ID,
-  OWNER_ID: process.env.OWNER_ID,               // Billy's Discord user ID
+  OWNER_ID: process.env.OWNER_ID,
   CHANNELS: {
     GHOST_STORY:   process.env.CHANNEL_GHOST_STORY   || 'soul-harbor-ghost-stories',
     TAROT:         process.env.CHANNEL_TAROT          || 'tarot-readings',
@@ -667,29 +589,22 @@ const CONFIG = {
 };
 
 const BAD_WORDS = ['fuck','shit','bitch','cunt','bastard','cock','dick','nigger','nigga'];
-
 function containsBadWord(text) {
   const lower = text.toLowerCase();
-  // Use word boundary matching to avoid false positives
-  // e.g. 'ass' in 'class', 'assassin', 'pass' should NOT trigger
   return BAD_WORDS.some(word => {
     const regex = new RegExp('\\b' + word + '\\b', 'i');
     return regex.test(lower);
   });
 }
-const warnCount = new Map();       // userId -> warn count
-const triviaActive = new Map();    // channelId -> { answer, winnerId }
-// Persistent trivia question history — stored in PostgreSQL, survives redeployments
+
+const warnCount = new Map();
+const triviaActive = new Map();
 let recentTriviaQuestions = [];
 
 async function loadTriviaHistory() {
   if (!db) return;
   try {
-    await db.query(`CREATE TABLE IF NOT EXISTS trivia_history (
-      id SERIAL PRIMARY KEY,
-      question TEXT NOT NULL,
-      asked_at TIMESTAMPTZ DEFAULT NOW()
-    )`);
+    await db.query(`CREATE TABLE IF NOT EXISTS trivia_history (id SERIAL PRIMARY KEY, question TEXT NOT NULL, asked_at TIMESTAMPTZ DEFAULT NOW())`);
     const rows = (await db.query('SELECT question FROM trivia_history ORDER BY asked_at DESC LIMIT 50')).rows;
     recentTriviaQuestions = rows.map(r => r.question).reverse();
     console.log(`✅ Loaded ${recentTriviaQuestions.length} trivia questions from DB`);
@@ -700,13 +615,12 @@ async function saveTriviaHistory(question) {
   if (!db) return;
   try {
     await db.query('INSERT INTO trivia_history (question) VALUES ($1)', [question]);
-    // Keep only last 100 in DB
     await db.query('DELETE FROM trivia_history WHERE id NOT IN (SELECT id FROM trivia_history ORDER BY asked_at DESC LIMIT 100)');
   } catch(e) { console.error('Trivia history save error:', e.message); }
 }
-const inviteTracker = new Map();   // inviterId -> count
 
-// ─── SPIRIT KNOWLEDGE SYSTEM PROMPT ──────────────────────
+const inviteTracker = new Map();
+
 const SPIRIT_SYSTEM_PROMPT = `You are Soul Harbor, a mystical AI spirit guide and companion for The Pagan Shop Online's Discord community (thepaganshoponline.com). 
 
 You are knowledgeable about:
@@ -726,84 +640,56 @@ Your personality:
 - Keep responses concise for chat (under 300 words unless doing a tarot reading)
 - You can answer general questions too, like a friendly knowledgeable companion`;
 
-// ─── HELPERS ─────────────────────────────────────────────
 function generateCouponCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = 'SOUL-';
   for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
   return code;
 }
+
 async function saveCouponToShop(code, percent = CONFIG.COUPONS.DISCOUNT_PERCENT, days = 7) {
   try {
     const res = await fetch(`${process.env.SHOP_URL}/create_coupon.php`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Coupon-Secret': process.env.BOT_COUPON_SECRET
-      },
+      headers: { 'Content-Type': 'application/json', 'X-Coupon-Secret': process.env.BOT_COUPON_SECRET },
       body: JSON.stringify({ code, percent, days })
     });
     const data = await res.json();
-    if (data.success) {
-      console.log(`✅ Coupon saved to Zen Cart: ${code}`);
-      return true;
-    } else {
-      console.error('❌ Coupon save failed:', data.error);
-      return false;
-    }
-  } catch (e) {
-    console.error('❌ Coupon endpoint error:', e.message);
-    return false;
-  }
+    if (data.success) { console.log(`✅ Coupon saved to Zen Cart: ${code}`); return true; }
+    else { console.error('❌ Coupon save failed:', data.error); return false; }
+  } catch (e) { console.error('❌ Coupon endpoint error:', e.message); return false; }
 }
+
 function getChannel(guild, name) {
   const cleanName = name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
   return guild.channels.cache.find(c => {
     if (c.type !== 0) return false;
     const cn = c.name.toLowerCase();
     const cnClean = cn.replace(/[^a-z0-9-]/gi, '');
-    return cn === name ||
-           cnClean === cleanName ||
-           cn.includes(name.toLowerCase()) ||
-           cnClean.includes(cleanName);
+    return cn === name || cnClean === cleanName || cn.includes(name.toLowerCase()) || cnClean.includes(cleanName);
   });
 }
 
 async function askGPT(messages, max_tokens = 400) {
   try {
-    const res = await getOpenAI().chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages,
-      max_tokens,
-      temperature: 0.85,
-    });
+    const res = await getOpenAI().chat.completions.create({ model: 'gpt-3.5-turbo', messages, max_tokens, temperature: 0.85 });
     return res.choices[0].message.content.trim();
-  } catch (e) {
-    console.error('OpenAI error:', e.message);
-    return null;
-  }
+  } catch (e) { console.error('OpenAI error:', e.message); return null; }
 }
 
 function makeEmbed(title, description, color = 0x6B2D8B) {
-  return new EmbedBuilder()
-    .setTitle(title)
-    .setDescription(description)
-    .setColor(color)
-    .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
-    .setTimestamp();
+  return new EmbedBuilder().setTitle(title).setDescription(description).setColor(color)
+    .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
 }
 
-// ─── STARTUP ENV CHECK ───────────────────────────────────
 const requiredEnv = ['DISCORD_TOKEN', 'OPENAI_API_KEY', 'GUILD_ID', 'OWNER_ID'];
 const missing = requiredEnv.filter(k => !process.env[k]);
 if (missing.length > 0) {
   console.error('❌ Missing environment variables:', missing.join(', '));
-  console.error('Please add them in Railway → Variables tab');
   process.exit(1);
 }
 if (!process.env.DATABASE_URL) {
   console.warn('⚠️  DATABASE_URL not set — XP, profile, keep, leaderboard features will be disabled.');
-  console.warn('   Add a PostgreSQL database in Railway to enable Phase 2 features.');
 }
 console.log('✅ All required environment variables present');
 console.log('GUILD_ID:', process.env.GUILD_ID);
@@ -815,15 +701,89 @@ console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅ set (Phase 2 enable
 // ─── BOT READY ───────────────────────────────────────────
 client.once('ready', async () => {
   console.log(`✅ Soul Harbor is online as ${client.user.tag}`);
-  console.log('DM intents active - DirectMessages:', client.options.intents.has(GatewayIntentBits.DirectMessages));
   client.user.setActivity('🔮 Watching over the spirits...', { type: 3 });
   await initDB();
   await loadTriviaHistory();
-  // Ensure all level roles exist with correct colors
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
-  if (guild) await ensureLevelRoles(guild);
+  if (guild) {
+    await ensureLevelRoles(guild);
+    await ensureAdminChannel(guild);  // ← NEW: creates private admin channel
+  }
   scheduleDailyTasks();
 });
+
+// ─── NEW: Create private admin-only channel for Billy ────
+async function ensureAdminChannel(guild) {
+  // Check if it already exists
+  const existing = guild.channels.cache.find(c =>
+    c.name.toLowerCase().includes('soul-harbor-admin') ||
+    c.name.toLowerCase().includes('bot-admin')
+  );
+  if (existing) return existing;
+
+  try {
+    // Create the channel with permissions: only Billy can see it
+    const adminChannel = await guild.channels.create({
+      name: '🤖・soul-harbor-admin',
+      type: 0,
+      permissionOverwrites: [
+        { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: CONFIG.OWNER_ID, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+      ],
+      reason: 'Soul Harbor private admin reference channel',
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor(0x4A0E8F)
+      .setTitle('🤖 Soul Harbor — Admin Command Reference')
+      .setDescription(
+        '**This channel is only visible to you, Billy.**\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🎖️ Award Badges (type the command OR just say it naturally)**\n\n' +
+        '`!award verified_patron @user` — Verified buyer/reviewer\n' +
+        '`!award trivia_master @user` — Won 25+ trivia contests\n' +
+        '`!award the_seer @user` — 25+ tarot readings\n' +
+        '`!award greeter @user` — Referred 3 friends\n' +
+        '`!award coven_builder @user` — Referred 10 friends\n' +
+        '`!award high_priest @user` — Referred 25+ friends\n' +
+        '`!award paranormal_witness @user` — Shared 5+ paranormal stories\n' +
+        '`!award altar_keeper @user` — Posted 10+ altar pics\n' +
+        '`!award spell_weaver @user` — Posted 10+ spells/rituals\n' +
+        '`!award manifestor @user` — Posted 10+ manifestation pics\n' +
+        '`!award spirit_conversant @user` — 50+ Soul Harbor interactions\n' +
+        '`!award class_scholar @user` — Attended 5+ classes\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🗣️ Natural Language (just say these in any channel)**\n\n' +
+        '"give verified patron to @user"\n' +
+        '"award trivia master to @user"\n' +
+        '"give coven builder badge to @user"\n' +
+        '"sync all roles" or "sync roles"\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🔄 Role Sync**\n\n' +
+        '`!syncrolesall` — Assign Seeker role to all members missing one\n' +
+        '*(New members get Seeker automatically on join — you only need this once for existing members)*\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**📊 View Stats**\n\n' +
+        '`!leaderboard` — Top 10 members by XP\n' +
+        '`!profile @user` — View any member\'s full profile\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**⚙️ Server Setup**\n\n' +
+        '`!setup` — Re-run channel emoji organization\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**⚠️ IMPORTANT: If `!syncrolesall` says "only server owner can do this"**\n' +
+        'Go to **Server Settings → Roles** and drag the **Soul Harbor** bot role to the very top of the list (above all other roles). The bot can only assign roles that are below its own role in the hierarchy.'
+      )
+      .setFooter({ text: '🔒 Only you can see this channel • Soul Harbor Admin' })
+      .setTimestamp();
+
+    await adminChannel.send({ embeds: [embed] });
+    console.log('✅ Admin channel created');
+    return adminChannel;
+  } catch(e) {
+    console.error('Could not create admin channel:', e.message);
+    return null;
+  }
+}
 
 // ─── WELCOME NEW MEMBERS ─────────────────────────────────
 client.on('guildMemberAdd', async (member) => {
@@ -833,31 +793,24 @@ client.on('guildMemberAdd', async (member) => {
   const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
   if (memberRole) member.roles.add(memberRole).catch(() => {});
 
-  // Assign Seeker role (Level 1)
+  // Auto-assign Seeker role (Level 1) — NEW MEMBERS ARE HANDLED AUTOMATICALLY
   let seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
   if (!seekerRole) {
     seekerRole = await guild.roles.create({
       name: 'Seeker',
-      colors: LEVEL_ROLE_COLORS['Seeker'] || 0x888888,
+      color: LEVEL_ROLE_COLORS['Seeker'] || 0x888888,
       reason: 'Soul Harbor default level role',
       hoist: true,
     }).catch(() => null);
   }
   if (seekerRole) member.roles.add(seekerRole).catch(() => {});
 
-  // PHASE 2: init member in DB
   if (db) await dbEnsure(member.id, member.user.username);
 
-  // Welcome message — try multiple channel name variations
-  const welcomeChannel = getChannel(guild, 'introductions') || 
+  const welcomeChannel = getChannel(guild, 'introductions') ||
                          getChannel(guild, 'welcome') ||
                          getChannel(guild, 'general');
-  
-  if (!welcomeChannel) {
-    console.log('Welcome channel not found — checked: introductions, welcome, general');
-    return;
-  }
-
+  if (!welcomeChannel) { console.log('Welcome channel not found'); return; }
   console.log(`✅ Sending welcome to ${member.user.username} in #${welcomeChannel.name}`);
 
   const embed = makeEmbed(
@@ -876,10 +829,8 @@ client.on('guildMemberAdd', async (member) => {
     `🕯️ Browse our spirit companions at **thepaganshoponline.com**\n\n` +
     `May your spirits guide you well. 🌙`
   ).setThumbnail(member.user.displayAvatarURL());
-
   welcomeChannel.send({ embeds: [embed] });
 
-  // PHASE 2: Referral — 48h hold then confirm
   if (db) {
     const pending = (await db.query('SELECT * FROM referrals WHERE invitee_id=$1 AND confirmed=FALSE', [member.id])).rows;
     if (pending.length > 0) {
@@ -901,23 +852,18 @@ client.on('guildMemberAdd', async (member) => {
     }
   }
 
-  // Track invites for invite rewards
   try {
     const newInvites = await guild.invites.fetch();
     const oldSnapshot = inviteTracker.get('snapshot');
-    
     if (oldSnapshot) {
-      // Find which invite was used
       newInvites.forEach(async (invite) => {
         const oldInvite = oldSnapshot.get(invite.code);
         if (oldInvite && invite.uses > oldInvite.uses) {
-          // This invite was used — find who created it
           if (db) {
             const res = await db.query('SELECT inviter_id FROM invite_links WHERE code=$1', [invite.code]).catch(() => null);
             if (res && res.rows.length > 0) {
               const inviterId = res.rows[0].inviter_id;
-              await db.query('INSERT INTO referrals (inviter_id, invitee_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', 
-                [inviterId, member.id]).catch(() => {});
+              await db.query('INSERT INTO referrals (inviter_id, invitee_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [inviterId, member.id]).catch(() => {});
               console.log(`✅ Referral tracked: ${inviterId} invited ${member.id}`);
             }
           }
@@ -932,27 +878,16 @@ client.on('guildMemberAdd', async (member) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  // ── Handle DM attachments (voice memos & documents) ──
+  // ── DM attachments ──
   if (!message.guild && message.attachments.size > 0) {
     const attachment = message.attachments.first();
-    const isAudio = attachment.contentType?.startsWith('audio/') || 
-                    attachment.name?.match(/\.(mp3|ogg|wav|m4a|webm)$/i);
-    const isText  = attachment.contentType?.startsWith('text/') || 
-                    attachment.name?.match(/\.(txt|md|doc)$/i);
-    
-    if (isAudio) {
-      await handleVoiceMemo(message);
-      return;
-    }
-    if (isText) {
-      // Auto-save text file — ask for spirit name
-      await message.reply('📄 I can save this to your Spirit Keep! Reply with:\n`!keep upload <spirit name>` and attach the file again.');
-      return;
-    }
+    const isAudio = attachment.contentType?.startsWith('audio/') || attachment.name?.match(/\.(mp3|ogg|wav|m4a|webm)$/i);
+    const isText  = attachment.contentType?.startsWith('text/') || attachment.name?.match(/\.(txt|md|doc)$/i);
+    if (isAudio) { await handleVoiceMemo(message); return; }
+    if (isText) { await message.reply('📄 I can save this to your Spirit Keep! Reply with:\n`!keep upload <spirit name>` and attach the file again.'); return; }
   }
 
   if (!message.guild) {
-    // Handle DM !keep upload with attachment
     const content = message.content.trim();
     const lower = content.toLowerCase();
     if (lower.startsWith('!keep upload') && message.attachments.size > 0) {
@@ -962,58 +897,46 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  if (!message.guild) return; // let raw handler deal with other DMs
+  if (!message.guild) return;
 
   const content = message.content.trim();
   const lower = content.toLowerCase();
   const userId = message.author.id;
   const username = message.author.username;
 
-  // ── PHASE 2: XP earning ───────────────────────────────
+  // ── XP earning ──
   if (db) {
     await dbEnsure(userId, username);
     const now = Date.now();
     const mData = await dbGet(userId);
     const cn = message.channel.name.toLowerCase();
 
-    // Chat XP — rate limited 1 per 60s
     if (mData && now - Number(mData.last_chat_xp) > 60_000) {
       await addXP(userId, username, XP_VALUES.chat, message.guild);
       await db.query('UPDATE members SET last_chat_xp=$1 WHERE user_id=$2', [now, userId]);
     }
 
-    // ── HIGH-EFFORT CHANNEL XP ─────────────────────────
-    // Altar pics — image required
     if (message.attachments.size > 0 && (cn.includes('altar') || cn.includes('spirit-altar'))) {
       await addXP(userId, username, XP_VALUES.altar_pic, message.guild);
       await db.query('UPDATE members SET altar_posts = altar_posts + 1 WHERE user_id=$1', [userId]);
       const m2 = await dbGet(userId);
       if (m2 && m2.altar_posts >= 10) await awardBadge(userId, username, 'altar_keeper', message.guild);
       await message.react('🕯️').catch(() => {});
-    }
-
-    // Manifestation pics — image required
-    else if (message.attachments.size > 0 && (cn.includes('manifest'))) {
+    } else if (message.attachments.size > 0 && cn.includes('manifest')) {
       await addXP(userId, username, XP_VALUES.manifestation_pic, message.guild);
       await db.query('UPDATE members SET manifestation_posts = manifestation_posts + 1 WHERE user_id=$1', [userId]);
       const m2 = await dbGet(userId);
       if (m2 && m2.manifestation_posts >= 10) await awardBadge(userId, username, 'manifestor', message.guild);
       await message.react('✨').catch(() => {});
-    }
-
-    // Spell sharing / magical concoctions — image OR long text (real effort)
-    else if ((cn.includes('spell') || cn.includes('magical') || cn.includes('concoction') || cn.includes('ritual')) &&
-             (message.attachments.size > 0 || content.length > 80)) {
+    } else if ((cn.includes('spell') || cn.includes('magical') || cn.includes('concoction') || cn.includes('ritual')) &&
+               (message.attachments.size > 0 || content.length > 80)) {
       await addXP(userId, username, XP_VALUES.spell_post, message.guild);
       await db.query('UPDATE members SET spell_posts = spell_posts + 1 WHERE user_id=$1', [userId]);
       const m2 = await dbGet(userId);
       if (m2 && m2.spell_posts >= 10) await awardBadge(userId, username, 'spell_weaver', message.guild);
       await message.react('🌙').catch(() => {});
-    }
-
-    // Paranormal stories — text post, min 100 chars (real story, not one-liners)
-    else if ((cn.includes('paranormal') || cn.includes('experience') || cn.includes('spirit-experience')) &&
-             content.length > 100 && !content.startsWith('!')) {
+    } else if ((cn.includes('paranormal') || cn.includes('experience') || cn.includes('spirit-experience')) &&
+               content.length > 100 && !content.startsWith('!')) {
       await addXP(userId, username, XP_VALUES.paranormal_story, message.guild);
       await db.query('UPDATE members SET paranormal_posts = paranormal_posts + 1 WHERE user_id=$1', [userId]);
       const m2 = await dbGet(userId);
@@ -1022,28 +945,18 @@ client.on('messageCreate', async (message) => {
     }
   }
 
-  // ── TRIVIA ANSWER CHECK — runs before shouldRespond so trivia channel works ──
+  // ── TRIVIA ANSWER CHECK ──
   if (triviaActive.has(message.channel.id)) {
     const trivia = triviaActive.get(message.channel.id);
     const answerLower = trivia.answer.toLowerCase().trim();
-    // Smart matching: check if the answer word(s) appear anywhere in the message
-    // Strip common filler phrases so "the answer is valkyrie" still matches
-    const cleanedMsg = lower
-      .replace(/^(the answer is|i think|i believe|is it|my answer is|answer:|it's|its)\s*/i, '')
-      .trim();
-    const isCorrect = cleanedMsg === answerLower || 
-                      cleanedMsg.startsWith(answerLower) ||
-                      cleanedMsg.includes(answerLower) ||
-                      lower === answerLower ||
-                      lower.endsWith(' ' + answerLower) ||
-                      lower.startsWith(answerLower + ' ') ||
-                      lower.includes(' ' + answerLower + ' ');
+    const cleanedMsg = lower.replace(/^(the answer is|i think|i believe|is it|my answer is|answer:|it's|its)\s*/i, '').trim();
+    const isCorrect = cleanedMsg === answerLower || cleanedMsg.startsWith(answerLower) || cleanedMsg.includes(answerLower) ||
+                      lower === answerLower || lower.endsWith(' ' + answerLower) || lower.startsWith(answerLower + ' ') || lower.includes(' ' + answerLower + ' ');
     console.log(`[TRIVIA] Expected: "${answerLower}" | Got: "${lower}" | Cleaned: "${cleanedMsg}" | Match: ${isCorrect}`);
     if (!trivia.winnerId && isCorrect) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
-      await saveCouponToShop(code); // ADD THIS
-      // PHASE 2: Award XP + track trivia win
+      await saveCouponToShop(code);
       if (db) {
         const tStart = triviaActive.get(message.channel.id).startTime || Date.now();
         const elapsed = (Date.now() - tStart) / 1000;
@@ -1055,32 +968,11 @@ client.on('messageCreate', async (message) => {
       }
       try {
         await message.author.send(
-          `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**
-
-` +
-          `Your exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:
-` +
-          `# \`${code}\`
-
-` +
-          `Use it at **thepaganshoponline.com** at checkout.
-` +
-          `Valid for 7 days. Keep this code private! 🛍️🔮`
+          `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**\n\nYour exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n# \`${code}\`\n\nUse it at **thepaganshoponline.com** at checkout.\nValid for 7 days. Keep this code private! 🛍️🔮`
         );
-      } catch(e) {
-        console.log('Could not DM winner:', e.message);
-      }
-      const embed = makeEmbed(
-        '🏆 We Have a Winner!',
-        `🎉 Congratulations ${message.author}! You answered correctly!
-
-` +
-        `Your discount code has been sent to your **DMs** — check your private messages! 🔮
-
-` +
-        `Thanks everyone for playing! Next contest coming soon. 🏆`,
-        0xFFD700
-      );
+      } catch(e) { console.log('Could not DM winner:', e.message); }
+      const embed = makeEmbed('🏆 We Have a Winner!',
+        `🎉 Congratulations ${message.author}! You answered correctly!\n\nYour discount code has been sent to your **DMs** — check your private messages! 🔮\n\nThanks everyone for playing! Next contest coming soon. 🏆`, 0xFFD700);
       message.channel.send({ embeds: [embed] });
       triviaActive.delete(message.channel.id);
       const role = message.guild.roles.cache.find(r => r.name === CONFIG.ROLES.CONTEST_CHAMPION);
@@ -1090,68 +982,35 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── MODERATION ──
-  const foundBadWord = containsBadWord(content);
-  if (foundBadWord) {
+  if (containsBadWord(content)) {
     const count = (warnCount.get(userId) || 0) + 1;
     warnCount.set(userId, count);
-
     await message.delete().catch(() => {});
-
     if (count === 1) {
       message.channel.send(`⚠️ ${message.author}, please keep our community respectful. **Warning 1/3**`);
     } else if (count === 2) {
       message.channel.send(`⚠️ ${message.author}, this is your **final warning (2/3)**. Next violation will be reported.`);
     } else if (count >= 3) {
       message.channel.send(`🚫 ${message.author} has received 3 warnings for inappropriate language.`);
-      // DM Billy (owner) + all Moderators
-      const alertMsg = `🚨 **Moderation Alert** — **${message.guild.name}**\n` +
-        `User **${message.author.tag}** has received 3 warnings for inappropriate language.\n` +
-        `Last message: "${message.content}"\n\n` +
-        `Do you want to kick or ban this user?`;
-
-      console.log('Attempting to DM owner ID:', CONFIG.OWNER_ID);
-
-      // Method 1: fetch from guild members
+      const alertMsg = `🚨 **Moderation Alert** — **${message.guild.name}**\nUser **${message.author.tag}** has received 3 warnings for inappropriate language.\nLast message: "${message.content}"\n\nDo you want to kick or ban this user?`;
       try {
         const guild = message.guild;
         await guild.members.fetch();
         const ownerMember = guild.members.cache.get(CONFIG.OWNER_ID);
         if (ownerMember) {
           await ownerMember.send(alertMsg);
-          console.log('✅ Moderation DM sent via guild member');
         } else {
-          // Method 2: fetch user directly
           const ownerUser = await client.users.fetch(CONFIG.OWNER_ID);
           await ownerUser.send(alertMsg);
-          console.log('✅ Moderation DM sent via user fetch');
         }
       } catch(e) {
-        console.log('❌ Could not DM owner:', e.message);
-        // Method 3: post in admin channel as fallback
-        const adminChannel = message.guild.channels.cache.find(c => 
-          c.name.includes('admin') && c.type === 0);
-        if (adminChannel) {
-          adminChannel.send(`🚨 <@${CONFIG.OWNER_ID}> **Moderation Alert:** ${message.author.tag} received 3 warnings. Last message: "${message.content}"`);
-        }
+        const adminChannel = message.guild.channels.cache.find(c => c.name.includes('admin') && c.type === 0);
+        if (adminChannel) adminChannel.send(`🚨 <@${CONFIG.OWNER_ID}> **Moderation Alert:** ${message.author.tag} received 3 warnings. Last message: "${message.content}"`);
       }
-
-      // DM all mods too
-      const modRoleForDM = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
-      if (modRoleForDM) {
-        modRoleForDM.members.forEach(async (member) => {
-          if (member.id !== CONFIG.OWNER_ID) {
-            member.send(alertMsg).catch(() => {});
-          }
-        });
-      }
-
-      // DM all members with 'mod' role
       const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
       if (modRole) {
         modRole.members.forEach(async (member) => {
-          if (member.id !== CONFIG.OWNER_ID) { // avoid double DM to Billy if he has mod role
-            member.send(alertMsg).catch(() => {});
-          }
+          if (member.id !== CONFIG.OWNER_ID) member.send(alertMsg).catch(() => {});
         });
       }
       warnCount.set(userId, 0);
@@ -1159,7 +1018,7 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // ── ALL ! COMMANDS — checked before natural language, run from any channel ──
+  // ── ! COMMANDS ──
   if (content.startsWith('!')) {
     if (lower === '!setup') { await handleSetup(message); return; }
     if (lower === '!help' || lower === '!commands') { await handleHelp(message); return; }
@@ -1169,7 +1028,6 @@ client.on('messageCreate', async (message) => {
     if (lower.startsWith('!horoscope')) { await handleHoroscope(message); return; }
     if (lower.startsWith('!spirit ')) { await handleSpiritInfo(message, content.slice(8)); return; }
     if (lower.startsWith('!badge')) { await handleBadges(message); return; }
-    // Phase 2 commands
     if (lower === '!xp' || lower === '!level') { await handleXP(message); return; }
     if (lower.startsWith('!profile')) { await handleProfile(message); return; }
     if (lower === '!leaderboard' || lower === '!lb') { await handleLeaderboard(message); return; }
@@ -1177,7 +1035,10 @@ client.on('messageCreate', async (message) => {
     if (lower.startsWith('!ask ')) { await handleAsk(message, content.slice(5).trim()); return; }
     if (lower === '!invite' || lower === '!referral') { await handleInvite(message); return; }
     if (lower.startsWith('!award')) { await handleAward(message, content.slice(6).trim()); return; }
-    if (lower === '!syncrolesall') { await handleSyncRoles(message); return; }
+    // ── FIX: accept all variations of sync command ──
+    if (lower === '!syncrolesall' || lower === '!sync roles all' || lower === '!syncroles' || lower === '!sync') {
+      await handleSyncRoles(message); return;
+    }
     if (lower === '!class' || lower === '!classes') {
       const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
       const embed = makeEmbed('📚 Spirit Keeping Academy',
@@ -1194,7 +1055,11 @@ client.on('messageCreate', async (message) => {
       embed.setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
       message.channel.send({ embeds: [embed] }); return;
     }
-    // Unknown ! command — don't fall through to AI chat
+    if (lower === '!adminhelp' && message.author.id === CONFIG.OWNER_ID) {
+      await ensureAdminChannel(message.guild);
+      message.reply('✅ Check your private 🤖・soul-harbor-admin channel for the full command reference!');
+      return;
+    }
     return;
   }
 
@@ -1202,56 +1067,67 @@ client.on('messageCreate', async (message) => {
   const isMentioned = message.mentions.has(client.user);
   const isDM = !message.guild;
   const rawChannelName = message.channel.name ? message.channel.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() : '';
-  const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName === 'soulharbor-chat' || rawChannelName.includes('soulharborchat') || rawChannelName === 'paganshopchat' || rawChannelName === 'paganshop-chat' || rawChannelName.includes('paganshopchat');
+  const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName.includes('soulharborchat') || rawChannelName === 'paganshopchat' || rawChannelName.includes('paganshopchat');
   const isCommand = content.startsWith('!');
-
-  // STRICT RESPONSE RULES:
-  // - In paganshop-chat or soulharbor-chat: ONLY respond when @mentioned or using a ! command
-  // - In other channels: ONLY respond when @mentioned
-  // - In DMs: always respond
-  // - NEVER respond to messages that @mention someone else but not the bot
-  // - NEVER respond to empty messages, single emojis, or very short messages
   const shouldRespond = isDM || isMentioned || (isGeneralChat && isCommand);
 
-  // Ignore very short messages (emojis, reactions, single words not directed at bot)
   if (!isDM && !isMentioned && content.length < 3) return;
-
-  // If in general chat but not mentioned and not a command, ignore
   if (!shouldRespond) return;
-
-  // If mentioned but the mention is for someone else (not the bot), ignore
   if (!isMentioned && !isDM && !isCommand) return;
 
   if (shouldRespond) {
-    // Strip the @mention from content if present
     const cleanContent = content.replace(/<@!?\d+>/g, '').trim();
     const cleanLower = cleanContent.toLowerCase();
 
-    // Tarot / card reading intent
-    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|draw.*card|\d+.card|one.card|two.card|three.card|four.card|five.card|six.card|seven.card|eight.card|nine.card|ten.card|reading/)) {
-      await handleTarot(message);
-      return;
-    }
+    // ── OWNER NATURAL LANGUAGE ADMIN COMMANDS ────────────────
+    // Billy can just type naturally — no need to remember exact commands
+    if (message.author.id === CONFIG.OWNER_ID) {
+      // "give/award/grant <badge> to @user" or "give @user <badge>"
+      const awardMatch = cleanLower.match(/(?:give|award|grant|add)\s+([a-z_\s]+?)\s+(?:badge\s+)?(?:to\s+)?<@!?\d+>/);
+      const awardMatchAlt = cleanLower.match(/(?:give|award|grant|add)\s+<@!?\d+>\s+(?:the\s+)?([a-z_\s]+?)\s*(?:badge)?$/);
 
-    // Ghost story / paranormal story intent
-    if (cleanLower.match(/ghost story|ghost stories|paranormal story|horror story|scary story|tell.*story|give.*story/)) {
-      await handleGhostStory(message);
-      return;
-    }
+      const badgeInputRaw = awardMatch ? awardMatch[1] : (awardMatchAlt ? awardMatchAlt[1] : null);
+      if (badgeInputRaw && message.mentions.members?.first()) {
+        // Normalize badge name: "verified patron" → "verified_patron", "trivia master" → "trivia_master"
+        const badgeKey = badgeInputRaw.toLowerCase().trim().replace(/\s+/g, '_');
+        const mention = message.mentions.members.first();
+        if (BADGES_DEF[badgeKey]) {
+          await awardBadge(mention.id, mention.user.username, badgeKey, message.guild);
+          const b = BADGES_DEF[badgeKey];
+          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
+          return;
+        }
+        // Try partial match if exact key not found
+        const partialKey = Object.keys(BADGES_DEF).find(k => k.includes(badgeKey) || badgeKey.includes(k.replace(/_/g, ' ')));
+        if (partialKey) {
+          await awardBadge(mention.id, mention.user.username, partialKey, message.guild);
+          const b = BADGES_DEF[partialKey];
+          message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
+          return;
+        }
+      }
 
-    // Trivia / contest intent
-    if (cleanLower.match(/trivia|contest|quiz|question|game|win|discount/)) {
-      await handleTrivia(message);
-      return;
-    }
+      // "sync roles" / "sync all" / "sync everyone" / "sync all roles"
+      if (cleanLower.match(/\bsync\b.*(all|roles|everyone|members)/)) {
+        await handleSyncRoles(message);
+        return;
+      }
 
-    // Horoscope intent
-    if (cleanLower.match(/horoscope|zodiac|astrology|sign|aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces/)) {
-      await handleHoroscope(message);
-      return;
+      // Shorthand: just "verified patron @user" without give/award verb
+      if (cleanLower.includes('verified patron') && message.mentions.members?.first()) {
+        const mention = message.mentions.members.first();
+        await awardBadge(mention.id, mention.user.username, 'verified_patron', message.guild);
+        message.reply(`✅ Awarded **✅ Verified Patron** to ${mention}!`);
+        return;
+      }
     }
+    // ── END OWNER NLP COMMANDS ──
 
-    // Spirit / entity info intent
+    if (cleanLower.match(/tarot|card reading|card spread|pull.*card|draw.*card|\d+.card|one.card|two.card|three.card|four.card|five.card|six.card|seven.card|eight.card|nine.card|ten.card|reading/)) { await handleTarot(message); return; }
+    if (cleanLower.match(/ghost story|ghost stories|paranormal story|horror story|scary story|tell.*story|give.*story/)) { await handleGhostStory(message); return; }
+    if (cleanLower.match(/trivia|contest|quiz|question|game|win|discount/)) { await handleTrivia(message); return; }
+    if (cleanLower.match(/horoscope|zodiac|astrology|sign|aries|taurus|gemini|cancer|leo|virgo|libra|scorpio|sagittarius|capricorn|aquarius|pisces/)) { await handleHoroscope(message); return; }
+
     const spiritMatch = cleanLower.match(/tell me about (.+)|who is (.+)|what is (.+)|info on (.+)|information about (.+)/);
     if (spiritMatch) {
       const spiritName = (spiritMatch[1] || spiritMatch[2] || spiritMatch[3] || spiritMatch[4] || spiritMatch[5]).trim();
@@ -1259,23 +1135,11 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
-    // Badges intent
-    if (cleanLower.match(/badge|badges|my rank|my level|achievements/)) {
-      await handleBadges(message);
-      return;
-    }
+    if (cleanLower.match(/badge|badges|my rank|my level|achievements/)) { await handleBadges(message); return; }
+    if (cleanLower.match(/help|commands|what can you do|what do you do/)) { await handleHelp(message); return; }
 
-    // Help intent
-    if (cleanLower.match(/help|commands|what can you do|what do you do/)) {
-      await handleHelp(message);
-      return;
-    }
-
-    // Everything else — natural AI conversation
     await handleChat(message, cleanContent);
-    return;
   }
-
 });
 
 // ─── TAROT READING ───────────────────────────────────────
@@ -1336,12 +1200,10 @@ const SPREAD_POSITIONS = {
 };
 
 function shuffleDeck(count) {
-  const shuffled = [...TAROT_DECK].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  return [...TAROT_DECK].sort(() => Math.random() - 0.5).slice(0, count);
 }
 
 async function handleTarot(message) {
-  // Soul Harbor interaction XP
   if (db && message.guild) {
     await dbEnsure(message.author.id, message.author.username);
     await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_tarot, message.guild);
@@ -1350,15 +1212,11 @@ async function handleTarot(message) {
     if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
   }
   const content = message.content;
-  // Detect card count from digits OR written words
   const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 'a':3 };
-  const numMatch = content.match(/(\d+)[- ]*card/i);
-  const wordMatch = content.match(/(one|two|three|four|five|six|seven|eight|nine|ten)[- ]*card/i);
-  // Also check for digit immediately followed by card
   const digitMatch = content.match(/(\d+)[\s-]*card/i);
+  const wordMatch = content.match(/(one|two|three|four|five|six|seven|eight|nine|ten)[- ]*card/i);
   let cardCount = 3;
   if (digitMatch) cardCount = parseInt(digitMatch[1]);
-  else if (numMatch) cardCount = parseInt(numMatch[1]);
   else if (wordMatch) cardCount = wordNums[wordMatch[1].toLowerCase()] || 3;
   if (cardCount < 3) cardCount = 3;
   if (cardCount > 14) cardCount = 14;
@@ -1367,30 +1225,17 @@ async function handleTarot(message) {
 
   const positions = SPREAD_POSITIONS[cardCount];
   const drawn = shuffleDeck(cardCount);
-
   const typing = await message.channel.send('🔮 *The spirits are laying out your cards...*');
-
   const cardList = drawn.map((c, i) => `${positions[i]}: ${c.name} (${c.keywords})`).join('\n');
   const prompt = `Do a mystical ${cardCount}-card tarot reading for ${message.author.username}.\nCards drawn:\n${cardList}\n\nGive a personal, flowing, insightful reading that connects ALL the cards together as a narrative. Reference each card's position by name. Be mystical, warm, and specific. Under 400 words.`;
-
-  const reading = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: prompt }
-  ], 600);
-
+  const reading = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: prompt }], 600);
   await typing.delete().catch(() => {});
   if (!reading) { message.channel.send('🔮 The spirits are clouded right now. Try again later.'); return; }
-
-  const headerEmbed = makeEmbed(
-    `🃏 ${cardCount}-Card Tarot Reading for ${message.author.displayName}`,
-    drawn.map((c, i) => `${c.emoji} **${positions[i]}** — ${c.name}\n*${c.keywords}*`).join('\n\n')
-  );
+  const headerEmbed = makeEmbed(`🃏 ${cardCount}-Card Tarot Reading for ${message.author.displayName}`,
+    drawn.map((c, i) => `${c.emoji} **${positions[i]}** — ${c.name}\n*${c.keywords}*`).join('\n\n'));
   message.channel.send({ embeds: [headerEmbed] });
-
   const readingEmbed = makeEmbed('🔮 Your Reading', reading, 0x2d1b69);
   message.channel.send({ embeds: [readingEmbed] });
-
-  // PHASE 2: Track tarot count + badge
   if (db) {
     await dbEnsure(message.author.id, message.author.username);
     await db.query('UPDATE members SET tarot_count = tarot_count + 1 WHERE user_id=$1', [message.author.id]);
@@ -1399,10 +1244,7 @@ async function handleTarot(message) {
   }
 }
 
-
-// ─── GHOST STORY ─────────────────────────────────────────
 async function handleGhostStory(message) {
-  // Soul Harbor interaction XP
   if (db && message.guild) {
     await dbEnsure(message.author.id, message.author.username);
     await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_ghost, message.guild);
@@ -1411,83 +1253,38 @@ async function handleGhostStory(message) {
     if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
   }
   const typing = await message.channel.send('👻 *Reaching into the shadow realm...*');
-
-  const story = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: 'Write a short, creepy, atmospheric ghost story (150-200 words). Make it original, eerie, and leave the ending unsettling. Set it in a real-feeling location.' }
-  ], 350);
-
+  const story = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: 'Write a short, creepy, atmospheric ghost story (150-200 words). Make it original, eerie, and leave the ending unsettling. Set it in a real-feeling location.' }], 350);
   await typing.delete().catch(() => {});
-
-  if (!story) {
-    message.channel.send('👻 The spirits have gone quiet. Try again later.');
-    return;
-  }
-
-  const embed = makeEmbed('👻 A Tale From The Shadow Realm', story, 0x1a0a2e);
-  message.channel.send({ embeds: [embed] });
+  if (!story) { message.channel.send('👻 The spirits have gone quiet. Try again later.'); return; }
+  message.channel.send({ embeds: [makeEmbed('👻 A Tale From The Shadow Realm', story, 0x1a0a2e)] });
 }
 
-// ─── TRIVIA CONTEST ──────────────────────────────────────
 async function handleTrivia(message) {
-  if (triviaActive.has(message.channel.id)) {
-    message.channel.send('🎯 A contest is already active! Answer the current question first.');
-    return;
-  }
-
+  if (triviaActive.has(message.channel.id)) { message.channel.send('🎯 A contest is already active! Answer the current question first.'); return; }
   const typing = await message.channel.send('🎯 *Consulting the spirits for a question...*');
-
-  const result = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: `Generate a trivia question about spirits, the paranormal, metaphysical topics, or spirit keeping. IMPORTANT: Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Be creative and vary the topic — cover different areas like spirit types, rituals, gemstones, mythology, divination tools, herbs, moon phases, etc. Format EXACTLY as:\nQUESTION: [question here]\nANSWER: [one word or short phrase answer]` }
-  ], 150);
-
+  const result = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
+    { role: 'user', content: `Generate a trivia question about spirits, the paranormal, metaphysical topics, or spirit keeping. IMPORTANT: Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Be creative and vary the topic. Format EXACTLY as:\nQUESTION: [question here]\nANSWER: [one word or short phrase answer]` }], 150);
   await typing.delete().catch(() => {});
-
-  if (!result) {
-    message.channel.send('🎯 Could not generate a question. Try again!');
-    return;
-  }
-
+  if (!result) { message.channel.send('🎯 Could not generate a question. Try again!'); return; }
   const qMatch = result.match(/QUESTION:\s*(.+)/i);
   const aMatch = result.match(/ANSWER:\s*(.+)/i);
-
-  if (!qMatch || !aMatch) {
-    message.channel.send('🎯 Could not generate a question. Try again!');
-    return;
-  }
-
+  if (!qMatch || !aMatch) { message.channel.send('🎯 Could not generate a question. Try again!'); return; }
   const question = qMatch[1].trim();
   const answer = aMatch[1].trim();
-
   triviaActive.set(message.channel.id, { answer, winnerId: null, startTime: Date.now() });
   recentTriviaQuestions.push(question);
   if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
   await saveTriviaHistory(question);
-
-  const embed = makeEmbed(
-    '🏆 Spirit Trivia Contest!',
-    `**${question}**\n\n` +
-    `First correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n` +
-    `⏱️ You have 5 minutes!`,
-    0xFFD700
-  );
-
-  message.channel.send({ embeds: [embed] });
-
-  // Auto-expire after 5 minutes
+  message.channel.send({ embeds: [makeEmbed('🏆 Spirit Trivia Contest!', `**${question}**\n\nFirst correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n⏱️ You have 5 minutes!`, 0xFFD700)] });
   setTimeout(() => {
     if (triviaActive.has(message.channel.id) && !triviaActive.get(message.channel.id).winnerId) {
       triviaActive.delete(message.channel.id);
-      const expireEmbed = makeEmbed('⏱️ Time\'s Up!', `Nobody answered in time! The answer was: **${answer}**\n\nBetter luck next time! 🔮`);
-      message.channel.send({ embeds: [expireEmbed] });
+      message.channel.send({ embeds: [makeEmbed('⏱️ Time\'s Up!', `Nobody answered in time! The answer was: **${answer}**\n\nBetter luck next time! 🔮`)] });
     }
-  }, 300000); // 5 minutes
+  }, 300000);
 }
 
-// ─── HOROSCOPE ───────────────────────────────────────────
 async function handleHoroscope(message) {
-  // Soul Harbor interaction XP
   if (db && message.guild) {
     await dbEnsure(message.author.id, message.author.username);
     await addXP(message.author.id, message.author.username, XP_VALUES.soul_harbor_horoscope, message.guild);
@@ -1496,67 +1293,40 @@ async function handleHoroscope(message) {
     if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
   }
   const signs = ['aries','taurus','gemini','cancer','leo','virgo','libra','scorpio','sagittarius','capricorn','aquarius','pisces'];
-  const lower = message.content.toLowerCase();
-  const sign = signs.find(s => lower.includes(s)) || 'general';
-
-  const horoscope = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: `Give a mystical, spirit-themed daily horoscope for ${sign}. Connect it to spirit energy and metaphysical themes. 100 words max.` }
-  ], 200);
-
+  const sign = signs.find(s => message.content.toLowerCase().includes(s)) || 'general';
+  const horoscope = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
+    { role: 'user', content: `Give a mystical, spirit-themed daily horoscope for ${sign}. Connect it to spirit energy and metaphysical themes. 100 words max.` }], 200);
   if (!horoscope) return;
-
-  const embed = makeEmbed(`🌙 Daily Horoscope${sign !== 'general' ? ` — ${sign}` : ''}`, horoscope, 0x2d1b69);
-  message.channel.send({ embeds: [embed] });
+  message.channel.send({ embeds: [makeEmbed(`🌙 Daily Horoscope${sign !== 'general' ? ` — ${sign}` : ''}`, horoscope, 0x2d1b69)] });
 }
 
-// ─── SPIRIT INFO ─────────────────────────────────────────
 async function handleSpiritInfo(message, spiritName) {
   const typing = await message.channel.send(`🔮 *Consulting the encyclopedia on ${spiritName}...*`);
-
-  const info = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: `Give a brief overview of the spirit/entity "${spiritName}" — what they are, their energy (White Arts/Dark Arts/Black Arts), realm of origin, and what they help with as a spirit companion. Keep it under 200 words. End with: "Learn more at thepaganshoponline.com 🔮"` }
-  ], 300);
-
+  const info = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
+    { role: 'user', content: `Give a brief overview of the spirit/entity "${spiritName}" — what they are, their energy (White Arts/Dark Arts/Black Arts), realm of origin, and what they help with as a spirit companion. Keep it under 200 words. End with: "Learn more at thepaganshoponline.com 🔮"` }], 300);
   await typing.delete().catch(() => {});
   if (!info) return;
-
-  const embed = makeEmbed(`🔮 ${spiritName}`, info);
-  message.channel.send({ embeds: [embed] });
+  message.channel.send({ embeds: [makeEmbed(`🔮 ${spiritName}`, info)] });
 }
 
-// ─── GENERAL CHAT ────────────────────────────────────────
 async function handleChat(message, userInput) {
-  const reply = await askGPT([
-    { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: userInput }
-  ], 350);
-
+  const reply = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: userInput }], 350);
   if (reply) message.reply(reply);
 }
 
-// ─── COUPON ──────────────────────────────────────────────
 async function handleCoupon(message) {
-  // Only for VIP Keeper role
   const hasVIP = message.member.roles.cache.find(r => r.name === CONFIG.ROLES.VIP_KEEPER);
-  if (!hasVIP) {
-    message.reply('🔮 Discount codes are earned through contests and VIP status. Join a trivia contest to win one!');
-    return;
-  }
+  if (!hasVIP) { message.reply('🔮 Discount codes are earned through contests and VIP status. Join a trivia contest to win one!'); return; }
   const code = generateCouponCode();
-  await saveCouponToShop(code); // ADD THIS
+  await saveCouponToShop(code);
   message.author.send(`🎁 Your exclusive discount code: \`${code}\`\nUse at thepaganshoponline.com — valid 7 days!`);
   message.reply('✅ Your discount code has been sent to your DMs! 🎁');
 }
 
-// ─── BADGES ──────────────────────────────────────────────
 async function handleBadges(message) {
   const roles = message.member.roles.cache
     .filter(r => Object.values(CONFIG.ROLES).includes(r.name))
-    .map(r => `✅ ${r.name}`)
-    .join('\n');
-
+    .map(r => `✅ ${r.name}`).join('\n');
   let phase2 = '';
   if (db) {
     const m = await dbGet(message.author.id);
@@ -1565,24 +1335,13 @@ async function handleBadges(message) {
       ? '\n\n**🎖️ Achievement Badges:**\n' + earned.map(k => BADGES_DEF[k] ? `${BADGES_DEF[k].emoji} ${BADGES_DEF[k].name}` : '').filter(Boolean).join(' · ')
       : '\n\n*No achievement badges yet — post altar pics, win trivia, attend classes!*';
   }
-
-  const embed = makeEmbed(
-    `🏅 Badges for ${message.author.displayName}`,
-    (roles || 'No server roles yet! Participate to earn badges! 🔮\n\n' +
-    '**How to earn roles:**\n' +
-    '🔮 Spirit Seeker — join the server\n' +
-    '🏆 Contest Champion — win a trivia contest\n' +
-    '💎 VIP Keeper — make a purchase from the shop\n' +
-    '⭐ Spirit Elder — long time active member') + phase2 +
-    '\n\n*Use `!allbadges` to see all achievement badges*'
-  );
-  message.channel.send({ embeds: [embed] });
+  message.channel.send({ embeds: [makeEmbed(`🏅 Badges for ${message.author.displayName}`,
+    (roles || 'No server roles yet! Participate to earn badges! 🔮\n\n**How to earn roles:**\n🔮 Spirit Seeker — join the server\n🏆 Contest Champion — win a trivia contest\n💎 VIP Keeper — make a purchase from the shop\n⭐ Spirit Elder — long time active member') + phase2 +
+    '\n\n*Use `!allbadges` to see all achievement badges*')] });
 }
 
-// ─── HELP ────────────────────────────────────────────────
 async function handleHelp(message) {
-  const embed = makeEmbed(
-    '🔮 Soul Harbor Commands',
+  message.channel.send({ embeds: [makeEmbed('🔮 Soul Harbor Commands',
     '**🎮 Core:**\n' +
     '`!tarot` — Get a tarot reading (+15 XP)\n' +
     '`!ghost` — Hear a ghost story (+8 XP)\n' +
@@ -1607,119 +1366,66 @@ async function handleHelp(message) {
     '`!allbadges` — See all available achievement badges\n' +
     '`!class` — View next class schedule\n\n' +
     '**⭐ How to Earn XP:**\n' +
-    '💬 Chat — 2 XP/min\n' +
-    '🔮 Tarot reading — 15 XP\n' +
-    '🌙 Horoscope / Ghost story — 8 XP\n' +
-    '❓ Ask Soul Harbor — 10 XP\n' +
-    '🕯️ Post altar pic — 50 XP\n' +
-    '✨ Post manifestation pic — 50 XP\n' +
-    '🌙 Post spell or ritual — 60 XP\n' +
-    '👁️ Share paranormal story — 75 XP\n' +
-    '🏆 Win trivia contest — 75 XP\n' +
-    '📚 Attend a class — 40 XP\n' +
-    '👋 Refer a friend — 100 XP\n\n' +
+    '💬 Chat — 2 XP/min · 🔮 Tarot — 15 XP · 🌙 Horoscope/Ghost — 8 XP\n' +
+    '❓ Ask — 10 XP · 🕯️ Altar pic — 50 XP · ✨ Manifestation — 50 XP\n' +
+    '🌙 Spell/ritual — 60 XP · 👁️ Paranormal story — 75 XP\n' +
+    '🏆 Win trivia — 75 XP · 📚 Attend class — 40 XP · 👋 Refer friend — 100 XP\n\n' +
     '**🌟 Level Titles:**\n' +
     'L1 Seeker → L5 Initiate → L10 Neophyte → L15 Practitioner\n' +
     'L20 Mystic → L30 Magus → L40 Elder → L50 Grandmaster\n\n' +
     '🛍️ Shop: **thepaganshoponline.com**'
-  );
-  message.channel.send({ embeds: [embed] });
+  )] });
 }
 
-// ─── SCHEDULED DAILY TASKS ───────────────────────────────
 function scheduleDailyTasks() {
   const guild = client.guilds.cache.get(CONFIG.GUILD_ID);
   if (!guild) return;
 
-  // Daily ghost story — 9pm CDT = 2am UTC
   cron.schedule('0 2 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.GHOST_STORY);
     if (!channel) return;
-
-    const story = await askGPT([
-      { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-      { role: 'user', content: 'Write a short, original, creepy ghost story (150-200 words). Make it atmospheric and leave the ending unsettling.' }
-    ], 350);
-
-    if (story) {
-      const embed = makeEmbed('👻 Tonight\'s Tale From The Shadow Realm', story, 0x1a0a2e);
-      channel.send({ embeds: [embed] });
-    }
+    const story = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: 'Write a short, original, creepy ghost story (150-200 words). Make it atmospheric and leave the ending unsettling.' }], 350);
+    if (story) channel.send({ embeds: [makeEmbed('👻 Tonight\'s Tale From The Shadow Realm', story, 0x1a0a2e)] });
   });
 
-  // Daily tarot card of the day — 9am CDT = 2pm UTC
   cron.schedule('0 14 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TAROT);
     if (!channel) return;
-
     const cards = ['The Moon','The Star','The Sun','The World','The Fool','The Magician','The High Priestess','Strength','The Hermit','Wheel of Fortune','The Tower','Judgement'];
     const card = cards[Math.floor(Math.random() * cards.length)];
-
-    const reading = await askGPT([
-      { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-      { role: 'user', content: `Today's card of the day is "${card}". Give a brief daily message and guidance based on this card's energy. 100 words max. Make it feel mystical and personal.` }
-    ], 200);
-
-    if (reading) {
-      const embed = makeEmbed('🃏 Card of the Day', `**${card}**\n\n${reading}`, 0x6B2D8B);
-      channel.send({ embeds: [embed] });
-    }
+    const reading = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: `Today's card of the day is "${card}". Give a brief daily message and guidance based on this card's energy. 100 words max. Make it feel mystical and personal.` }], 200);
+    if (reading) channel.send({ embeds: [makeEmbed('🃏 Card of the Day', `**${card}**\n\n${reading}`, 0x6B2D8B)] });
   });
 
-  // Daily trivia contest — 6pm CDT = 11pm UTC
   cron.schedule('0 23 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TRIVIA);
     if (!channel) return;
-
-    const result = await askGPT([
-      { role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-      { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. IMPORTANT: Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Be creative and vary the topic — cover different areas like spirit types, rituals, gemstones, mythology, divination tools, herbs, moon phases, etc. Format EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }
-    ], 150);
-
+    const result = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
+      { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. IMPORTANT: Do NOT ask any of these already-used questions: ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Format EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }], 150);
     if (!result) return;
-
     const qMatch = result.match(/QUESTION:\s*(.+)/i);
     const aMatch = result.match(/ANSWER:\s*(.+)/i);
     if (!qMatch || !aMatch) return;
-
     const question = qMatch[1].trim();
     const answer = aMatch[1].trim();
-
     triviaActive.set(channel.id, { answer, winnerId: null, startTime: Date.now() });
     recentTriviaQuestions.push(question);
     if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
     await saveTriviaHistory(question);
-
-    const embed = makeEmbed(
-      '🏆 Daily Spirit Trivia!',
-      `**${question}**\n\n` +
-      `First correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n` +
-      `⏱️ You have 5 minutes!`,
-      0xFFD700
-    );
-    channel.send({ embeds: [embed] });
-
+    channel.send({ embeds: [makeEmbed('🏆 Daily Spirit Trivia!', `**${question}**\n\nFirst correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n⏱️ You have 5 minutes!`, 0xFFD700)] });
     setTimeout(() => {
       if (triviaActive.has(channel.id) && !triviaActive.get(channel.id).winnerId) {
         triviaActive.delete(channel.id);
-        const expEmbed = makeEmbed('⏱️ Time\'s Up!', `Nobody answered! The answer was: **${answer}**\n\nNew contest tomorrow! 🔮`);
-        channel.send({ embeds: [expEmbed] });
+        channel.send({ embeds: [makeEmbed('⏱️ Time\'s Up!', `Nobody answered! The answer was: **${answer}**\n\nNew contest tomorrow! 🔮`)] });
       }
-    }, 300000); // 5 minutes
+    }, 300000);
   });
 
+  cron.schedule('0 23 * * 3', async () => { await runWeeklyClass(guild); });
   console.log('✅ Daily tasks scheduled');
-
-  // PHASE 2: Weekly class — Wednesday 6pm CDT = 11pm UTC
-  cron.schedule('0 23 * * 3', async () => {
-    await runWeeklyClass(guild);
-  });
   console.log('✅ Weekly class scheduled (Wednesdays 6pm EST)');
 }
 
-// ─── LOGIN ───────────────────────────────────────────────
-
-// ─── ONE-TIME SETUP COMMAND ───────────────────────────────
 const CATEGORY_RENAMES = {
   'private zone':          '🔒・PRIVATE ZONE',
   'important':             '📋・WELCOME & RULES',
@@ -1742,202 +1448,126 @@ const CATEGORY_RENAMES = {
 function getSmartEmoji(channelName) {
   const n = channelName.toLowerCase();
   const rules = [
-    [/admin|mod.rules|staff.rules/, '🛡️'],
-    [/mod.chat|staff.chat|admin.chat/, '💬'],
-    [/bot.command|commands/, '🤖'],
-    [/intro|welcome/, '👋'],
-    [/rules/, '📜'],
-    [/announc/, '📣'],
-    [/soulharbor|soul.harbor.chat|harbor.chat/, '🔮'],
-    [/ghost/, '👻'],
-    [/tarot/, '🃏'],
-    [/trivia|contest/, '🏆'],
-    [/horoscope|astro/, '🌙'],
-    [/shop.link|store.link/, '🛍️'],
-    [/new.custom|pre.conjure|new.listing/, '🌟'],
-    [/review/, '⭐'],
-    [/event|sale|discount/, '📅'],
-    [/about.billy|about.us/, '🧿'],
-    [/spiritboard/, '🌐'],
-    [/general|chat|lounge/, '🗣️'],
-    [/gallery|photo|image/, '🖼️'],
-    [/music/, '🎵'],
-    [/movie|film|watch/, '🎬'],
-    [/link|video|media/, '🔗'],
-    [/gratitude|excite|celebrat/, '🙏'],
-    [/vent|rant/, '💭'],
-    [/nsfw|adult/, '🔞'],
-    [/education|learn|class|lesson/, '📖'],
-    [/blog|post|article/, '📝'],
-    [/experience|story|stories|testimonial/, '✨'],
-    [/auction/, '🔨'],
-    [/angel/, '👼'],
-    [/asia|asian|eastern/, '🌏'],
-    [/creature|beast|monster/, '🐉'],
-    [/demon|dark.arts/, '👿'],
-    [/djinn|genie|jinn/, '🧞'],
-    [/dragon/, '🐲'],
-    [/elf|elven/, '🧝'],
-    [/fae|fairy|faerie/, '🧚'],
-    [/human|warlock|witch/, '👤'],
-    [/hybrid|mix/, '🔀'],
-    [/immortal|eternal/, '♾️'],
-    [/sexual|romance|love/, '🔥'],
-    [/vampire|vamp/, '🧛'],
-    [/xp|level|rank|badge|achievement/, '🏅'],
-    [/leaderboard|top/, '🏆'],
-    [/reward|point|earn/, '💎'],
-    [/quest|mission|challenge/, '⚔️'],
-    [/market|store|buy|sell/, '🛒'],
-    [/conjure|custom/, '✨'],
-    [/affiliat|partner|collab/, '🤝'],
-    [/feedback|suggest/, '💡'],
-    [/help|support|ticket/, '🆘'],
-    [/voice|vc|audio/, '🎙️'],
-    [/game|gaming/, '🎮'],
-    [/art|creative|design/, '🎨'],
-    [/spiritual|sacred|ritual/, '🕯️'],
-    [/moon|lunar/, '🌕'],
-    [/crystal|gem|stone/, '💎'],
-    [/spell|magic|magick/, '✨'],
-    [/divination|oracle/, '🔮'],
-    [/healing|wellness/, '💚'],
-    [/protection|shield/, '🛡️'],
-    [/abundance|prosperity|wealth/, '💰'],
+    [/admin|mod.rules|staff.rules/, '🛡️'], [/mod.chat|staff.chat|admin.chat/, '💬'],
+    [/bot.command|commands/, '🤖'], [/intro|welcome/, '👋'], [/rules/, '📜'],
+    [/announc/, '📣'], [/soulharbor|soul.harbor.chat|harbor.chat/, '🔮'],
+    [/ghost/, '👻'], [/tarot/, '🃏'], [/trivia|contest/, '🏆'],
+    [/horoscope|astro/, '🌙'], [/shop.link|store.link/, '🛍️'],
+    [/new.custom|pre.conjure|new.listing/, '🌟'], [/review/, '⭐'],
+    [/event|sale|discount/, '📅'], [/about.billy|about.us/, '🧿'],
+    [/spiritboard/, '🌐'], [/general|chat|lounge/, '🗣️'],
+    [/gallery|photo|image/, '🖼️'], [/music/, '🎵'], [/movie|film|watch/, '🎬'],
+    [/link|video|media/, '🔗'], [/gratitude|excite|celebrat/, '🙏'],
+    [/vent|rant/, '💭'], [/nsfw|adult/, '🔞'],
+    [/education|learn|class|lesson/, '📖'], [/blog|post|article/, '📝'],
+    [/experience|story|stories|testimonial/, '✨'], [/auction/, '🔨'],
+    [/angel/, '👼'], [/asia|asian|eastern/, '🌏'],
+    [/creature|beast|monster/, '🐉'], [/demon|dark.arts/, '👿'],
+    [/djinn|genie|jinn/, '🧞'], [/dragon/, '🐲'], [/elf|elven/, '🧝'],
+    [/fae|fairy|faerie/, '🧚'], [/human|warlock|witch/, '👤'],
+    [/hybrid|mix/, '🔀'], [/immortal|eternal/, '♾️'],
+    [/sexual|romance|love/, '🔥'], [/vampire|vamp/, '🧛'],
+    [/xp|level|rank|badge|achievement/, '🏅'], [/leaderboard|top/, '🏆'],
+    [/reward|point|earn/, '💎'], [/quest|mission|challenge/, '⚔️'],
+    [/market|store|buy|sell/, '🛒'], [/conjure|custom/, '✨'],
+    [/affiliat|partner|collab/, '🤝'], [/feedback|suggest/, '💡'],
+    [/help|support|ticket/, '🆘'], [/voice|vc|audio/, '🎙️'],
+    [/game|gaming/, '🎮'], [/art|creative|design/, '🎨'],
+    [/spiritual|sacred|ritual/, '🕯️'], [/moon|lunar/, '🌕'],
+    [/crystal|gem|stone/, '💎'], [/spell|magic|magick/, '✨'],
+    [/divination|oracle/, '🔮'], [/healing|wellness/, '💚'],
+    [/protection|shield/, '🛡️'], [/abundance|prosperity|wealth/, '💰'],
     [/spirit.companion|companion/, '💜'],
   ];
-  for (const [pattern, emoji] of rules) {
-    if (pattern.test(n)) return emoji;
-  }
+  for (const [pattern, emoji] of rules) { if (pattern.test(n)) return emoji; }
   return '✨';
 }
 
 const CHANNEL_RENAMES = {};
 
-
-
 async function handleSetup(message) {
-  const allowedIds = [CONFIG.OWNER_ID, '1511088381013262560']; // Billy + Arbeena
-  if (!allowedIds.includes(message.author.id)) {
-    message.reply('❌ Only admins can run this command.');
-    return;
-  }
+  const allowedIds = [CONFIG.OWNER_ID, '1511088381013262560'];
+  if (!allowedIds.includes(message.author.id)) { message.reply('❌ Only admins can run this command.'); return; }
   const msg = await message.reply('⏳ Starting channel organization... this will take 2-3 minutes.');
   const guild = message.guild;
   await guild.channels.fetch();
-  let renamed = 0;
-  let errors = 0;
+  let renamed = 0, errors = 0;
 
-  // Create Soul Harbor category if missing
   const existingCats = guild.channels.cache.filter(c => c.type === 4);
   const hasSoulHarborCat = existingCats.some(c => c.name.toLowerCase().includes('soul harbor'));
   if (!hasSoulHarborCat) {
     const soulHarborCat = await guild.channels.create({ name: '🔮・SOUL HARBOR', type: 4 }).catch(() => null);
     if (soulHarborCat) {
-      const chats = ['soulharbor-chat', 'soul-harbor-ghost-stories'];
-      for (const chName of chats) {
+      for (const chName of ['soulharbor-chat', 'soul-harbor-ghost-stories']) {
         const ch = guild.channels.cache.find(c => c.name === chName);
         if (ch) await ch.setParent(soulHarborCat.id).catch(() => {});
       }
     }
   }
 
-  // Rename categories
   for (const channel of guild.channels.cache.values()) {
     if (channel.type === 4) {
       const key = channel.name.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
       const newName = CATEGORY_RENAMES[key];
       if (newName && channel.name !== newName) {
-        try {
-          await channel.setName(newName);
-          renamed++;
-          await new Promise(r => setTimeout(r, 1200));
-        } catch(e) { errors++; }
+        try { await channel.setName(newName); renamed++; await new Promise(r => setTimeout(r, 1200)); } catch(e) { errors++; }
       }
     }
   }
 
-  // Smart emoji renaming for ALL channels without emojis
   for (const channel of guild.channels.cache.values()) {
     if (channel.type === 0 || channel.type === 2) {
       const firstCode = channel.name.codePointAt(0);
-      if (firstCode > 127) continue; // already has emoji
+      if (firstCode > 127) continue;
       const emoji = getSmartEmoji(channel.name);
       const newName = emoji + '・' + channel.name;
-      try {
-        await channel.setName(newName);
-        renamed++;
-        await new Promise(r => setTimeout(r, 1500));
-      } catch(e) { errors++; }
+      try { await channel.setName(newName); renamed++; await new Promise(r => setTimeout(r, 1500)); } catch(e) { errors++; }
     }
   }
 
-  msg.edit(`✅ Done! Renamed **${renamed}** channels and categories. Errors: ${errors}
-
-The server is now organized! 🔮`);
+  msg.edit(`✅ Done! Renamed **${renamed}** channels and categories. Errors: ${errors}\n\nThe server is now organized! 🔮`);
 }
 
-// ── AUTO EMOJI ON NEW CHANNEL CREATION ──────────────────
 client.on('channelCreate', async (channel) => {
-  if (channel.type !== 0 && channel.type !== 2) return; // text or voice only
+  if (channel.type !== 0 && channel.type !== 2) return;
   const firstCode = channel.name.codePointAt(0);
-  if (firstCode > 127) return; // already has emoji
+  if (firstCode > 127) return;
   try {
     const emoji = getSmartEmoji(channel.name);
-    const newName = emoji + '・' + channel.name;
-    await channel.setName(newName);
-    console.log(`Auto-emoji: ${channel.name} -> ${newName}`);
-  } catch(e) {
-    console.log('Could not auto-emoji channel:', e.message);
-  }
+    await channel.setName(emoji + '・' + channel.name);
+  } catch(e) { console.log('Could not auto-emoji channel:', e.message); }
 });
 
-// Raw event listener for DMs as fallback
 client.on('raw', async (packet) => {
   if (packet.t !== 'MESSAGE_CREATE') return;
-  if (packet.d.guild_id) return; // ignore server messages
-  if (packet.d.author?.bot) return; // ignore bots
-  
+  if (packet.d.guild_id) return;
+  if (packet.d.author?.bot) return;
   console.log('📨 Raw DM packet received from:', packet.d.author?.username, '| Content:', packet.d.content);
-  
-  // Fetch the channel and create a proper message object
   try {
     const channel = await client.channels.fetch(packet.d.channel_id).catch(() => null);
-    if (!channel) { console.log('Could not fetch DM channel'); return; }
-    
+    if (!channel) return;
     const dmContent = packet.d.content?.trim();
     if (!dmContent) return;
-    
-    // Create a minimal message-like object for our handlers
     const fakeMsg = {
-      author: { id: packet.d.author.id, tag: packet.d.author.username, bot: false, displayAvatarURL: () => '' },
-      content: dmContent,
-      guild: null,
-      channel: channel,
+      author: { id: packet.d.author.id, tag: packet.d.author.username, bot: false, displayAvatarURL: () => '', username: packet.d.author.username, displayName: packet.d.author.username },
+      content: dmContent, guild: null, channel,
       reply: (text) => channel.send(typeof text === 'string' ? text : text),
-      mentions: { has: () => false },
-      partial: false,
+      mentions: { has: () => false }, partial: false,
       displayName: packet.d.author.username,
     };
-    fakeMsg.author.displayName = packet.d.author.username;
-
     const dmLower = dmContent.toLowerCase();
     if (dmLower.match(/tarot|card reading|\d+.card|card spread/)) { await handleTarot(fakeMsg); return; }
     if (dmLower.match(/ghost story|paranormal story|scary story/)) { await handleGhostStory(fakeMsg); return; }
     if (dmLower.match(/horoscope|zodiac/)) { await handleHoroscope(fakeMsg); return; }
     if (dmLower.match(/help|commands/)) { await handleHelp(fakeMsg); return; }
     await handleChat(fakeMsg, dmContent);
-  } catch(e) {
-    console.log('❌ Raw DM handler error:', e.message);
-  }
+  } catch(e) { console.log('❌ Raw DM handler error:', e.message); }
 });
 
 client.login(process.env.DISCORD_TOKEN);
 
-// ─── !award command — Billy manually grants badges ────────
 async function handleAward(message, args) {
   if (!db) return message.reply('Database required.');
-  // Only Billy (owner) can award
   if (message.author.id !== CONFIG.OWNER_ID) return message.reply('❌ Only the server owner can award badges.');
   const parts = args.split(/\s+/);
   const badgeKey = parts[0];
@@ -1949,7 +1579,6 @@ async function handleAward(message, args) {
   message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
 }
 
-// ─── !syncrolesall — assign Seeker to all existing members ─
 async function handleSyncRoles(message) {
   if (message.author.id !== CONFIG.OWNER_ID) return message.reply('❌ Only the server owner can run this.');
   const msg = await message.reply('⏳ Syncing Seeker role to all members without a level role...');
@@ -1958,8 +1587,7 @@ async function handleSyncRoles(message) {
   const seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
   if (!seekerRole) return msg.edit('❌ Seeker role not found. Restart the bot first to create it.');
   const levelRoleNames = LEVELS.map(l => l.name);
-  let synced = 0;
-  let skipped = 0;
+  let synced = 0, skipped = 0;
   for (const [, member] of guild.members.cache) {
     if (member.user.bot) continue;
     if (await isExcludedFromXP(member)) { skipped++; continue; }
@@ -1968,7 +1596,7 @@ async function handleSyncRoles(message) {
       await member.roles.add(seekerRole).catch(() => {});
       if (db) await dbEnsure(member.id, member.user.username);
       synced++;
-      await new Promise(r => setTimeout(r, 300)); // rate limit
+      await new Promise(r => setTimeout(r, 300));
     } else { skipped++; }
   }
   msg.edit(`✅ Done! Assigned Seeker role to **${synced}** members. Skipped **${skipped}** (already have a role or excluded).`);
