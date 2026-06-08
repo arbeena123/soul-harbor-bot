@@ -272,6 +272,23 @@ async function handleLevelUp(userId, username, tier, guild) {
   } catch(e) { console.error('LevelUp error:', e.message); }
 }
 
+// Badge role colors — each badge gets a distinct colored role
+const BADGE_ROLE_COLORS = {
+  verified_patron:    0x00B0FF,  // Light blue
+  trivia_master:      0xFFD700,  // Gold
+  the_seer:           0x9B59B6,  // Purple
+  lightning_reflexes: 0xF1C40F,  // Yellow
+  greeter:            0x2ECC71,  // Green
+  coven_builder:      0x1ABC9C,  // Teal
+  high_priest:        0xE74C3C,  // Red
+  altar_keeper:       0xE67E22,  // Orange
+  spell_weaver:       0x8E44AD,  // Dark purple
+  class_scholar:      0x3498DB,  // Blue
+  paranormal_witness: 0x95A5A6,  // Grey
+  manifestor:         0xF39C12,  // Amber
+  spirit_conversant:  0x1E8BC3,  // Steel blue
+};
+
 async function awardBadge(userId, username, key, guild) {
   if (!db) return;
   const m = await dbGet(userId);
@@ -281,11 +298,45 @@ async function awardBadge(userId, username, key, guild) {
   if (!b) return;
   try {
     const member = await guild.members.fetch(userId);
-    const embed = new EmbedBuilder().setColor(0xFFD700)
+
+    // ── 1. DM the member ──
+    const dmEmbed = new EmbedBuilder().setColor(BADGE_ROLE_COLORS[key] || 0xFFD700)
       .setTitle(`${b.emoji} Badge Unlocked: ${b.name}`)
-      .setDescription(`*${b.desc}*`)
-      .setFooter({ text: '🔮 Soul Harbor' }).setTimestamp();
-    await member.send({ embeds: [embed] }).catch(() => {});
+      .setDescription(`*${b.desc}*\n\nYour badge is now displayed on your profile! Use \`!profile\` to show it off. 🔮`)
+      .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
+    await member.send({ embeds: [dmEmbed] }).catch(() => {});
+
+    // ── 2. Assign badge role so it shows next to their name ──
+    const roleName = `${b.emoji} ${b.name}`;
+    let badgeRole = guild.roles.cache.find(r => r.name === roleName);
+    if (!badgeRole) {
+      badgeRole = await guild.roles.create({
+        name: roleName,
+        color: BADGE_ROLE_COLORS[key] || 0xFFD700,
+        reason: `Soul Harbor badge: ${b.name}`,
+        hoist: false,  // shows in member list under their level role
+      }).catch(() => null);
+    }
+    if (badgeRole) await member.roles.add(badgeRole).catch(() => {});
+
+    // ── 3. Public announcement in general channel ──
+    const generalChannel = getChannel(guild, CONFIG.CHANNELS.GENERAL);
+    if (generalChannel) {
+      const announceEmbed = new EmbedBuilder()
+        .setColor(BADGE_ROLE_COLORS[key] || 0xFFD700)
+        .setTitle(`${b.emoji} Badge Earned!`)
+        .setDescription(
+          `🎉 Congratulations **${member}**!\n\n` +
+          `You just earned the **${b.emoji} ${b.name}** badge!\n` +
+          `*${b.desc}*\n\n` +
+          `Keep it up — more badges and rewards await! Type \`!allbadges\` to see what you can earn. 🔮`
+        )
+        .setThumbnail(member.user.displayAvatarURL())
+        .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
+        .setTimestamp();
+      generalChannel.send({ embeds: [announceEmbed] }).catch(() => {});
+    }
+
   } catch(_) {}
 }
 
