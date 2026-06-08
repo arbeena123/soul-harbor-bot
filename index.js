@@ -449,20 +449,31 @@ const CONFIG = {
 const BAD_WORDS = ['fuck','shit','ass','bitch','damn','cunt','bastard','piss','cock','dick'];
 const warnCount = new Map();       // userId -> warn count
 const triviaActive = new Map();    // channelId -> { answer, winnerId }
-// Persistent trivia question history — survives bot restarts
-const TRIVIA_HISTORY_FILE = '/tmp/trivia_history.json';
-function loadTriviaHistory() {
+// Persistent trivia question history — stored in PostgreSQL, survives redeployments
+let recentTriviaQuestions = [];
+
+async function loadTriviaHistory() {
+  if (!db) return;
   try {
-    if (fs.existsSync(TRIVIA_HISTORY_FILE)) {
-      return JSON.parse(fs.readFileSync(TRIVIA_HISTORY_FILE, 'utf8'));
-    }
-  } catch(e) {}
-  return [];
+    await db.query(`CREATE TABLE IF NOT EXISTS trivia_history (
+      id SERIAL PRIMARY KEY,
+      question TEXT NOT NULL,
+      asked_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+    const rows = (await db.query('SELECT question FROM trivia_history ORDER BY asked_at DESC LIMIT 50')).rows;
+    recentTriviaQuestions = rows.map(r => r.question).reverse();
+    console.log(`✅ Loaded ${recentTriviaQuestions.length} trivia questions from DB`);
+  } catch(e) { console.error('Trivia history load error:', e.message); }
 }
-function saveTriviaHistory(arr) {
-  try { fs.writeFileSync(TRIVIA_HISTORY_FILE, JSON.stringify(arr)); } catch(e) {}
+
+async function saveTriviaHistory(question) {
+  if (!db) return;
+  try {
+    await db.query('INSERT INTO trivia_history (question) VALUES ($1)', [question]);
+    // Keep only last 100 in DB
+    await db.query('DELETE FROM trivia_history WHERE id NOT IN (SELECT id FROM trivia_history ORDER BY asked_at DESC LIMIT 100)');
+  } catch(e) { console.error('Trivia history save error:', e.message); }
 }
-const recentTriviaQuestions = loadTriviaHistory();
 const inviteTracker = new Map();   // inviterId -> count
 
 // ─── SPIRIT KNOWLEDGE SYSTEM PROMPT ──────────────────────
@@ -575,6 +586,7 @@ client.once('ready', async () => {
   console.log('DM intents active - DirectMessages:', client.options.intents.has(GatewayIntentBits.DirectMessages));
   client.user.setActivity('🔮 Watching over the spirits...', { type: 3 });
   await initDB();
+  await loadTriviaHistory();
   scheduleDailyTasks();
 });
 
@@ -713,8 +725,21 @@ client.on('messageCreate', async (message) => {
   // ── TRIVIA ANSWER CHECK — runs before shouldRespond so trivia channel works ──
   if (triviaActive.has(message.channel.id)) {
     const trivia = triviaActive.get(message.channel.id);
-    console.log('[TRIVIA] Channel: ' + message.channel.id + ', Expected: ' + trivia.answer + ', Got: ' + lower);
-    if (!trivia.winnerId && lower.includes(trivia.answer.toLowerCase())) {
+    const answerLower = trivia.answer.toLowerCase().trim();
+    // Smart matching: check if the answer word(s) appear anywhere in the message
+    // Strip common filler phrases so "the answer is valkyrie" still matches
+    const cleanedMsg = lower
+      .replace(/^(the answer is|i think|i believe|is it|my answer is|answer:|it's|its)\s*/i, '')
+      .trim();
+    const isCorrect = cleanedMsg === answerLower || 
+                      cleanedMsg.startsWith(answerLower) ||
+                      cleanedMsg.includes(answerLower) ||
+                      lower === answerLower ||
+                      lower.endsWith(' ' + answerLower) ||
+                      lower.startsWith(answerLower + ' ') ||
+                      lower.includes(' ' + answerLower + ' ');
+    console.log(`[TRIVIA] Expected: "${answerLower}" | Got: "${lower}" | Cleaned: "${cleanedMsg}" | Match: ${isCorrect}`);
+    if (!trivia.winnerId && isCorrect) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
       await saveCouponToShop(code); // ADD THIS
@@ -1135,7 +1160,7 @@ async function handleTrivia(message) {
   triviaActive.set(message.channel.id, { answer, winnerId: null, startTime: Date.now() });
   recentTriviaQuestions.push(question);
   if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
-  saveTriviaHistory(recentTriviaQuestions);
+  await saveTriviaHistory(question);
 
   const embed = makeEmbed(
     '🏆 Spirit Trivia Contest!',
@@ -1147,7 +1172,7 @@ async function handleTrivia(message) {
 
   message.channel.send({ embeds: [embed] });
 
-  // Auto-expire after 2 minutes
+  // Auto-expire after 5 minutes
   setTimeout(() => {
     if (triviaActive.has(message.channel.id) && !triviaActive.get(message.channel.id).winnerId) {
       triviaActive.delete(message.channel.id);
@@ -1299,8 +1324,8 @@ function scheduleDailyTasks() {
   const guild = client.guilds.cache.get(CONFIG.GUILD_ID);
   if (!guild) return;
 
-  // Daily ghost story — 8pm every day
-  cron.schedule('0 0 * * *', async () => { // 8pm EDT (UTC-4)
+  // Daily ghost story — 9pm CDT = 2am UTC
+  cron.schedule('0 2 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.GHOST_STORY);
     if (!channel) return;
 
@@ -1315,8 +1340,8 @@ function scheduleDailyTasks() {
     }
   });
 
-  // Daily tarot card of the day — 9am every day
-  cron.schedule('0 13 * * *', async () => { // 9am EDT (UTC-4)
+  // Daily tarot card of the day — 9am CDT = 2pm UTC
+  cron.schedule('0 14 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TAROT);
     if (!channel) return;
 
@@ -1334,8 +1359,8 @@ function scheduleDailyTasks() {
     }
   });
 
-  // Daily trivia contest — 6pm every day
-  cron.schedule('0 22 * * *', async () => { // 6pm EDT (UTC-4)
+  // Daily trivia contest — 6pm CDT = 11pm UTC
+  cron.schedule('0 23 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TRIVIA);
     if (!channel) return;
 
@@ -1356,7 +1381,7 @@ function scheduleDailyTasks() {
     triviaActive.set(channel.id, { answer, winnerId: null, startTime: Date.now() });
     recentTriviaQuestions.push(question);
     if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
-    saveTriviaHistory(recentTriviaQuestions);
+    await saveTriviaHistory(question);
 
     const embed = makeEmbed(
       '🏆 Daily Spirit Trivia!',
@@ -1378,7 +1403,7 @@ function scheduleDailyTasks() {
 
   console.log('✅ Daily tasks scheduled');
 
-  // PHASE 2: Weekly class — Wednesday 6pm EST (11pm UTC)
+  // PHASE 2: Weekly class — Wednesday 6pm CDT = 11pm UTC
   cron.schedule('0 23 * * 3', async () => {
     await runWeeklyClass(guild);
   });
