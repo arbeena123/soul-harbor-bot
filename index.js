@@ -59,6 +59,16 @@ async function initDB() {
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS soul_harbor_interactions INTEGER DEFAULT 0`,
   ];
   for (const sql of newCols) await db.query(sql).catch(() => {});
+  // Ensure referrals table has unique constraint on invitee_id (prevents silent duplicate inserts)
+  await db.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'referrals_invitee_unique'
+      ) THEN
+        ALTER TABLE referrals ADD CONSTRAINT referrals_invitee_unique UNIQUE (invitee_id);
+      END IF;
+    END $$;
+  `).catch(() => {});
   console.log('✅ Phase 2 database ready');
 }
 
@@ -93,9 +103,9 @@ const BADGES_DEF = {
   the_seer:            { emoji: '🔮', name: 'The Seer',              desc: 'Complete 25 tarot readings' },
   trivia_master:       { emoji: '🏆', name: 'Trivia Master',         desc: 'Win 25 trivia contests' },
   verified_patron:     { emoji: '✅', name: 'Verified Patron',       desc: 'Verified purchase or review' },
-  greeter:             { emoji: '👋', name: 'Greeter',               desc: 'Refer 3 friends to Soul Harbor' },
-  coven_builder:       { emoji: '🌙', name: 'Coven Builder',         desc: 'Refer 10 friends to Soul Harbor' },
-  high_priest:         { emoji: '👑', name: 'High Priest/ess',       desc: 'Refer 25+ members' },
+  greeter:             { emoji: '👋', name: 'Greeter',               desc: 'Refer 3 friends to The Pagan Shop Online Discord' },
+  coven_builder:       { emoji: '🌙', name: 'Coven Builder',         desc: 'Refer 10 friends to The Pagan Shop Online Discord' },
+  high_priest:         { emoji: '👑', name: 'High Priest/ess',       desc: 'Refer 25+ members to The Pagan Shop Online Discord' },
   altar_keeper:        { emoji: '🕯️', name: 'Altar Keeper',          desc: 'Post 10 altar pictures' },
   spell_weaver:        { emoji: '✨', name: 'Spell Weaver',           desc: 'Post 10 spells or rituals' },
   class_scholar:       { emoji: '📚', name: 'Scholar of the Veil',   desc: 'Attend 5 spirit keeping classes' },
@@ -454,7 +464,7 @@ async function handleInvite(message) {
     await db.query('INSERT INTO invite_links (code, inviter_id) VALUES ($1,$2) ON CONFLICT (code) DO NOTHING', [invite.code, userId]);
     const embed = new EmbedBuilder().setColor(0x7B2FBE)
       .setTitle('🔗 Your Personal Invite Link')
-      .setDescription(`Share this link to invite friends to Soul Harbor!\n\n**Your invite link:**\nhttps://discord.gg/${invite.code}\n\nWhen someone joins using your link you'll earn **100 XP**! After they stay for 48 hours it's confirmed.\n\n👋 Refer 3 friends → **Greeter** badge\n🌙 Refer 10 friends → **Coven Builder** badge\n👑 Refer 25 friends → **High Priest/ess** badge`)
+      .setDescription(`Share this link to invite friends to **The Pagan Shop Online Discord**!\n\n**Your invite link:**\nhttps://discord.gg/${invite.code}\n\nWhen someone joins using your link you'll earn **100 XP**! After they stay for 48 hours it's confirmed.\n\n👋 Refer 3 friends → **Greeter** badge\n🌙 Refer 10 friends → **Coven Builder** badge\n👑 Refer 25 friends → **High Priest/ess** badge`)
       .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
     message.author.send({ embeds: [embed] }).catch(() => message.reply(`Your invite link: https://discord.gg/${invite.code}`));
     message.reply('✅ Your personal invite link has been sent to your DMs! 🔗');
@@ -760,7 +770,7 @@ client.once('ready', async () => {
     await ensureLevelRoles(guild);
     await ensureAdminChannel(guild);  // ← NEW: creates private admin channel
   }
-  scheduleDailyTasks();
+  await scheduleDailyTasks();
 });
 
 // ─── NEW: Create private admin-only channel for Billy ────
@@ -916,21 +926,33 @@ client.on('guildMemberAdd', async (member) => {
     const newInvites = await guild.invites.fetch();
     const oldSnapshot = inviteTracker.get('snapshot');
     if (oldSnapshot) {
-      newInvites.forEach(async (invite) => {
-        const oldInvite = oldSnapshot.get(invite.code);
-        if (oldInvite && invite.uses > oldInvite.uses) {
+      for (const [code, invite] of newInvites) {
+        const oldInvite = oldSnapshot.get(code);
+        const oldUses = oldInvite ? oldInvite.uses : 0;
+        if (invite.uses > oldUses) {
           if (db) {
-            const res = await db.query('SELECT inviter_id FROM invite_links WHERE code=$1', [invite.code]).catch(() => null);
-            if (res && res.rows.length > 0) {
-              const inviterId = res.rows[0].inviter_id;
-              await db.query('INSERT INTO referrals (inviter_id, invitee_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [inviterId, member.id]).catch(() => {});
-              console.log(`✅ Referral tracked: ${inviterId} invited ${member.id}`);
+            try {
+              const res = await db.query('SELECT inviter_id FROM invite_links WHERE code=$1', [code]);
+              if (res.rows.length > 0) {
+                const inviterId = res.rows[0].inviter_id;
+                // Check not already tracked to avoid silent duplicates
+                const existing = await db.query('SELECT id FROM referrals WHERE invitee_id=$1', [member.id]);
+                if (existing.rows.length === 0) {
+                  await db.query('INSERT INTO referrals (inviter_id, invitee_id) VALUES ($1,$2)', [inviterId, member.id]);
+                  console.log(`✅ Referral tracked: ${inviterId} invited ${member.id}`);
+                } else {
+                  console.log(`⚠️ Referral already exists for invitee ${member.id}, skipping`);
+                }
+              }
+            } catch(dbErr) {
+              console.error('Referral DB error:', dbErr.message);
             }
           }
         }
-      });
+      }
     }
-    inviteTracker.set('snapshot', newInvites);
+    // Store just uses count — not full object reference — so comparisons stay correct across awaits
+    inviteTracker.set('snapshot', new Map([...newInvites.values()].map(inv => [inv.code, { uses: inv.uses }])));
   } catch(e) { console.log('Invite tracking error:', e.message); }
 });
 
@@ -1504,13 +1526,21 @@ async function handleHelp(message) {
   )] });
 }
 
-function scheduleDailyTasks() {
-  const guild = client.guilds.cache.get(CONFIG.GUILD_ID);
-  if (!guild) return;
+async function scheduleDailyTasks() {
+  let guild = client.guilds.cache.get(CONFIG.GUILD_ID);
+  if (!guild) {
+    try { guild = await client.guilds.fetch(CONFIG.GUILD_ID); } catch(e) { console.log('Could not fetch guild:', e.message); }
+  }
+  if (!guild) { console.log('❌ Could not find guild for scheduled tasks'); return; }
 
   cron.schedule('0 2 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.GHOST_STORY);
-    if (!channel) return;
+    if (!channel) {
+      console.log(`❌ Ghost story channel not found. Looking for: "${CONFIG.CHANNELS.GHOST_STORY}"`);
+      console.log('Available text channels:', guild.channels.cache.filter(c=>c.type===0).map(c=>c.name).join(', '));
+      return;
+    }
+    console.log(`✅ Ghost story posting to #${channel.name}`);
     const story = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: 'Write a short, original, creepy ghost story (150-200 words). Make it atmospheric and leave the ending unsettling.' }], 350);
     if (story) channel.send({ embeds: [makeEmbed('👻 Tonight\'s Tale From The Shadow Realm', story, 0x1a0a2e)] });
   });
@@ -1526,7 +1556,12 @@ function scheduleDailyTasks() {
 
   cron.schedule('0 23 * * *', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TRIVIA);
-    if (!channel) return;
+    if (!channel) {
+      console.log(`❌ Trivia channel not found. Looking for: "${CONFIG.CHANNELS.TRIVIA}"`);
+      console.log('Available text channels:', guild.channels.cache.filter(c=>c.type===0).map(c=>c.name).join(', '));
+      return;
+    }
+    console.log(`✅ Trivia posting to #${channel.name}`);
     const result = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
       { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. IMPORTANT: Do NOT ask any of these already-used questions: ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Format EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }], 150);
     if (!result) return;
