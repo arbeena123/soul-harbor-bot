@@ -140,13 +140,30 @@ function genCode(prefix = 'SOUL') {
   return `${prefix}${Date.now().toString(36).toUpperCase()}`;
 }
 
+// Per Billy (June 2026): mods CAN earn XP/levels now. Only the server owner is excluded.
 async function isExcludedFromXP(member) {
   if (!member) return false;
   if (member.guild.ownerId === member.id) return true;
-  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-  const modRoles = ["mod", "moderator", "admin", "staff", "developer"];
-  if (member.roles.cache.some(r => modRoles.includes(r.name.toLowerCase()))) return true;
+  if (CONFIG.OWNER_ID && member.id === CONFIG.OWNER_ID) return true;
   return false;
+}
+
+// Staff = exempt from auto-moderation (owner, admins, mod-type roles)
+function isStaffMember(message) {
+  if (!message.guild || !message.member) return false;
+  if (message.author.id === message.guild.ownerId) return true;
+  if (CONFIG.OWNER_ID && message.author.id === CONFIG.OWNER_ID) return true;
+  if (message.member.permissions?.has(PermissionFlagsBits.Administrator)) return true;
+  if (message.member.permissions?.has(PermissionFlagsBits.ManageMessages)) return true;
+  const modRoles = ['mod', 'moderator', 'admin', 'staff', 'developer'];
+  return message.member.roles.cache.some(r => modRoles.includes(r.name.toLowerCase()));
+}
+
+// True owner check — trusts Discord's live guild.ownerId, not just the env var
+function isOwner(message) {
+  if (!message.guild) return false;
+  if (message.author.id === message.guild.ownerId) return true;
+  return Boolean(CONFIG.OWNER_ID && message.author.id === CONFIG.OWNER_ID);
 }
 
 async function generateGiftVoucher(value) {
@@ -626,8 +643,9 @@ function getOpenAI() {
 }
 
 const CONFIG = {
-  GUILD_ID: process.env.GUILD_ID,
-  OWNER_ID: process.env.OWNER_ID,
+  GUILD_ID: (process.env.GUILD_ID || '').trim(),
+  OWNER_ID: (process.env.OWNER_ID || '').trim(),
+  TIMEZONE: (process.env.BOT_TIMEZONE || 'America/New_York').trim(),
   CHANNELS: {
     GHOST_STORY:   process.env.CHANNEL_GHOST_STORY   || 'soul-harbor-ghost-stories',
     TAROT:         process.env.CHANNEL_TAROT          || 'tarot-readings',
@@ -723,8 +741,9 @@ async function saveCouponToShop(code, percent = CONFIG.COUPONS.DISCOUNT_PERCENT,
 
 function getChannel(guild, name) {
   const cleanName = name.replace(/[^a-z0-9-]/gi, '').toLowerCase();
+  // Type 0 = text, Type 5 = announcement — both can receive bot posts
   return guild.channels.cache.find(c => {
-    if (c.type !== 0) return false;
+    if (c.type !== 0 && c.type !== 5) return false;
     const cn = c.name.toLowerCase();
     const cnClean = cn.replace(/[^a-z0-9-]/gi, '');
     return cn === name || cnClean === cleanName || cn.includes(name.toLowerCase()) || cnClean.includes(cleanName);
@@ -885,9 +904,9 @@ client.on('guildMemberAdd', async (member) => {
 
   const embed = makeEmbed(
     `🔮 Welcome, ${member.displayName}!`,
-    `The spirits have been expecting you... Welcome to **Soul Harbor**. \n\n` +
-    `You have entered the official community of **The Pagan Shop Online** — a gathering place for spirit keepers, practitioners, and seekers of the mystical arts.\n\n` +
-    `**I am Soul Harbor, your AI spirit guide.** Here is how to work with me:\n\n` +
+    `The spirits have been expecting you... Welcome to **The Pagan Shop Online** Discord. \n\n` +
+    `This is the gathering place for spirit keepers, practitioners, and seekers of the mystical arts.\n\n` +
+    `**I am Soul Harbor, the AI spirit guide of this community.** Here is how to work with me:\n\n` +
     `🃏 Ask me for a tarot reading — *"Can you do a 3 card reading"* or *"give me a 6 card spread"*\n` +
     `👻 Ask me for a ghost story — *"tell me a ghost story"*\n` +
     `🌙 Ask your horoscope — *"what is my Scorpio horoscope"*\n` +
@@ -1076,7 +1095,8 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── MODERATION ──
-  if (containsBadWord(content)) {
+  // Owner, admins, and mods are exempt — the bot must never warn/delete Billy or staff
+  if (containsBadWord(content) && !isStaffMember(message)) {
     const count = (warnCount.get(userId) || 0) + 1;
     warnCount.set(userId, count);
     await message.delete().catch(() => {});
@@ -1101,7 +1121,7 @@ client.on('messageCreate', async (message) => {
         const adminChannel = message.guild.channels.cache.find(c => c.name.includes('admin') && c.type === 0);
         if (adminChannel) adminChannel.send(`🚨 <@${CONFIG.OWNER_ID}> **Moderation Alert:** ${message.author.tag} received 3 warnings. Last message: "${message.content}"`);
       }
-      const modRole = message.guild.roles.cache.find(r => r.name.toLowerCase() === 'mod');
+      const modRole = message.guild.roles.cache.find(r => ['mod', 'moderator'].includes(r.name.toLowerCase()));
       if (modRole) {
         modRole.members.forEach(async (member) => {
           if (member.id !== CONFIG.OWNER_ID) member.send(alertMsg).catch(() => {});
@@ -1149,7 +1169,7 @@ client.on('messageCreate', async (message) => {
       embed.setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
       message.channel.send({ embeds: [embed] }); return;
     }
-    if (lower === '!adminhelp' && message.author.id === CONFIG.OWNER_ID) {
+    if (lower === '!adminhelp' && isOwner(message)) {
       await ensureAdminChannel(message.guild);
       message.reply('✅ Check your private 🤖・soul-harbor-admin channel for the full command reference!');
       return;
@@ -1157,9 +1177,10 @@ client.on('messageCreate', async (message) => {
     return;
   }
 
-  // ── OWNER COMMANDS — run in ANY channel, no @mention needed ──
+  // ── OWNER COMMANDS — run in ANY channel (except announcements), no @mention needed ──
   // Check this BEFORE shouldRespond so Billy doesn't need to @mention the bot
-  if (message.author.id === CONFIG.OWNER_ID && !content.startsWith('!')) {
+  const inAnnouncements = message.channel.type === 5 || (message.channel.name || '').toLowerCase().includes('announc');
+  if (isOwner(message) && !content.startsWith('!') && !inAnnouncements) {
     const origLower = content.toLowerCase();
     const targetMember = message.mentions.members?.find(m => m.id !== client.user.id) || null;
 
@@ -1206,12 +1227,17 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── NATURAL LANGUAGE INTENT DETECTION ──
-  const isMentioned = message.mentions.has(client.user);
+  // ignoreEveryone: an @everyone announcement must NOT count as mentioning the bot
+  // (this was why Soul Harbor replied to Billy's announcements and started trivia on them)
+  const isMentioned = message.mentions.has(client.user, { ignoreEveryone: true, ignoreRoles: true });
   const isDM = !message.guild;
+  const isAnnouncementChannel = message.channel.type === 5 ||
+    (message.channel.name || '').toLowerCase().includes('announc');
   const rawChannelName = message.channel.name ? message.channel.name.replace(/[^a-z0-9-]/gi, '').toLowerCase() : '';
   const isGeneralChat = rawChannelName === 'soulharborchat' || rawChannelName.includes('soulharborchat') || rawChannelName === 'paganshopchat' || rawChannelName.includes('paganshopchat');
   const isCommand = content.startsWith('!');
-  const shouldRespond = isDM || isMentioned || (isGeneralChat && isCommand);
+  // Never react conversationally inside announcement channels
+  const shouldRespond = !isAnnouncementChannel && (isDM || isMentioned || (isGeneralChat && isCommand));
 
   if (!isDM && !isMentioned && content.length < 3) return;
   if (!shouldRespond) return;
@@ -1223,7 +1249,7 @@ client.on('messageCreate', async (message) => {
 
     // ── OWNER NATURAL LANGUAGE ADMIN COMMANDS ────────────────
     // Use ORIGINAL content — we need @mentions intact for matching
-    if (message.author.id === CONFIG.OWNER_ID) {
+    if (isOwner(message)) {
       const origLower = content.toLowerCase();
       // Target = any mentioned member who is NOT the bot
       const targetMember = message.mentions.members?.find(m => m.id !== client.user.id) || null;
@@ -1526,6 +1552,19 @@ async function handleHelp(message) {
   )] });
 }
 
+// Wrap every scheduled job so Railway logs always show: fired / done / failed
+function scheduledJob(name, fn) {
+  return async () => {
+    console.log(`[cron] ${name} starting (${new Date().toISOString()})`);
+    try {
+      await fn();
+      console.log(`[cron] ${name} done`);
+    } catch (err) {
+      console.error(`[cron] ${name} FAILED:`, err);
+    }
+  };
+}
+
 async function scheduleDailyTasks() {
   let guild = client.guilds.cache.get(CONFIG.GUILD_ID);
   if (!guild) {
@@ -1533,32 +1572,37 @@ async function scheduleDailyTasks() {
   }
   if (!guild) { console.log('❌ Could not find guild for scheduled tasks'); return; }
 
-  cron.schedule('0 2 * * *', async () => {
+  const TZ = { timezone: CONFIG.TIMEZONE };
+
+  // 👻 Ghost story — 10:00 PM local time, every night (DST-proof: no UTC math)
+  cron.schedule('0 22 * * *', scheduledJob('ghost-story', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.GHOST_STORY);
     if (!channel) {
       console.log(`❌ Ghost story channel not found. Looking for: "${CONFIG.CHANNELS.GHOST_STORY}"`);
-      console.log('Available text channels:', guild.channels.cache.filter(c=>c.type===0).map(c=>c.name).join(', '));
+      console.log('Available channels:', guild.channels.cache.filter(c=>c.type===0||c.type===5).map(c=>c.name).join(', '));
       return;
     }
     console.log(`✅ Ghost story posting to #${channel.name}`);
     const story = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: 'Write a short, original, creepy ghost story (150-200 words). Make it atmospheric and leave the ending unsettling.' }], 350);
-    if (story) channel.send({ embeds: [makeEmbed('👻 Tonight\'s Tale From The Shadow Realm', story, 0x1a0a2e)] });
-  });
+    if (story) await channel.send({ embeds: [makeEmbed('👻 Tonight\'s Tale From The Shadow Realm', story, 0x1a0a2e)] });
+  }), TZ);
 
-  cron.schedule('0 14 * * *', async () => {
+  // 🃏 Card of the day — 10:00 AM local time
+  cron.schedule('0 10 * * *', scheduledJob('card-of-the-day', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TAROT);
-    if (!channel) return;
+    if (!channel) { console.log(`❌ Tarot channel not found: "${CONFIG.CHANNELS.TAROT}"`); return; }
     const cards = ['The Moon','The Star','The Sun','The World','The Fool','The Magician','The High Priestess','Strength','The Hermit','Wheel of Fortune','The Tower','Judgement'];
     const card = cards[Math.floor(Math.random() * cards.length)];
     const reading = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: `Today's card of the day is "${card}". Give a brief daily message and guidance based on this card's energy. 100 words max. Make it feel mystical and personal.` }], 200);
-    if (reading) channel.send({ embeds: [makeEmbed('🃏 Card of the Day', `**${card}**\n\n${reading}`, 0x6B2D8B)] });
-  });
+    if (reading) await channel.send({ embeds: [makeEmbed('🃏 Card of the Day', `**${card}**\n\n${reading}`, 0x6B2D8B)] });
+  }), TZ);
 
-  cron.schedule('0 23 * * *', async () => {
+  // 🏆 Daily trivia — 6:00 PM local time (matches the welcome message)
+  cron.schedule('0 18 * * *', scheduledJob('daily-trivia', async () => {
     const channel = getChannel(guild, CONFIG.CHANNELS.TRIVIA);
     if (!channel) {
       console.log(`❌ Trivia channel not found. Looking for: "${CONFIG.CHANNELS.TRIVIA}"`);
-      console.log('Available text channels:', guild.channels.cache.filter(c=>c.type===0).map(c=>c.name).join(', '));
+      console.log('Available channels:', guild.channels.cache.filter(c=>c.type===0||c.type===5).map(c=>c.name).join(', '));
       return;
     }
     console.log(`✅ Trivia posting to #${channel.name}`);
@@ -1567,25 +1611,76 @@ async function scheduleDailyTasks() {
     if (!result) return;
     const qMatch = result.match(/QUESTION:\s*(.+)/i);
     const aMatch = result.match(/ANSWER:\s*(.+)/i);
-    if (!qMatch || !aMatch) return;
+    if (!qMatch || !aMatch) { console.log('❌ Trivia generation returned bad format:', result.substring(0, 120)); return; }
     const question = qMatch[1].trim();
     const answer = aMatch[1].trim();
     triviaActive.set(channel.id, { answer, winnerId: null, startTime: Date.now() });
     recentTriviaQuestions.push(question);
     if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
     await saveTriviaHistory(question);
-    channel.send({ embeds: [makeEmbed('🏆 Daily Spirit Trivia!', `**${question}**\n\nFirst correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n⏱️ You have 5 minutes!`, 0xFFD700)] });
+    await channel.send({ embeds: [makeEmbed('🏆 Daily Spirit Trivia!', `**${question}**\n\nFirst correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n⏱️ You have 5 minutes!`, 0xFFD700)] });
     setTimeout(() => {
       if (triviaActive.has(channel.id) && !triviaActive.get(channel.id).winnerId) {
         triviaActive.delete(channel.id);
         channel.send({ embeds: [makeEmbed('⏱️ Time\'s Up!', `Nobody answered! The answer was: **${answer}**\n\nNew contest tomorrow! 🔮`)] });
       }
     }, 300000);
-  });
+  }), TZ);
 
-  cron.schedule('0 23 * * 3', async () => { await runWeeklyClass(guild); });
-  console.log('✅ Daily tasks scheduled');
-  console.log('✅ Weekly class scheduled (Wednesdays 6pm EST)');
+  // 📚 Weekly class — Wednesday 6:00 PM local time
+  cron.schedule('0 18 * * 3', scheduledJob('weekly-class', async () => { await runWeeklyClass(guild); }), TZ);
+
+  // 📝 Blog → Discord — checks the shop blog feed every 30 minutes, posts new articles
+  if (process.env.BLOG_FEED_URL) {
+    cron.schedule('*/30 * * * *', scheduledJob('blog-to-discord', async () => { await postNewBlogArticles(guild); }), TZ);
+    console.log(`✅ Blog poller scheduled (${process.env.BLOG_FEED_URL})`);
+  } else {
+    console.log('⚠️  BLOG_FEED_URL not set — blog-to-Discord posting disabled. Set it to the blog RSS/feed URL on Railway.');
+  }
+
+  console.log(`✅ Daily tasks scheduled in timezone ${CONFIG.TIMEZONE}: ghost 10PM · trivia 6PM · card 10AM · class Wed 6PM`);
+}
+
+// ─── BLOG → DISCORD POLLER ───────────────────────────────
+async function postNewBlogArticles(guild) {
+  const feedUrl = process.env.BLOG_FEED_URL;
+  if (!feedUrl) return;
+  const channel = getChannel(guild, process.env.CHANNEL_BLOG || CONFIG.CHANNELS.ANNOUNCEMENTS);
+  if (!channel) { console.log('❌ Blog channel not found'); return; }
+
+  const res = await fetch(feedUrl, { headers: { 'User-Agent': 'SoulHarborBot/2.0' } });
+  if (!res.ok) { console.log(`❌ Blog feed fetch failed: HTTP ${res.status}`); return; }
+  const xml = await res.text();
+
+  // Lightweight RSS/Atom item parsing (no extra dependency)
+  const items = [];
+  const itemBlocks = xml.match(/<item[\s\S]*?<\/item>/gi) || xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
+  for (const block of itemBlocks.slice(0, 10)) {
+    const title = (block.match(/<title[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i) || [])[1]?.trim();
+    let link = (block.match(/<link[^>]*>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/link>/i) || [])[1]?.trim();
+    if (!link) link = (block.match(/<link[^>]*href="([^"]+)"/i) || [])[1]?.trim(); // Atom style
+    if (title && link) items.push({ title, link });
+  }
+  if (!items.length) { console.log('⚠️ Blog feed parsed but no items found'); return; }
+
+  if (db) {
+    await db.query(`CREATE TABLE IF NOT EXISTS blog_posted (link TEXT PRIMARY KEY, posted_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+    // First run: mark existing items as seen WITHOUT posting (avoids flooding the channel with old articles)
+    const seenCount = parseInt((await db.query('SELECT COUNT(*) FROM blog_posted')).rows[0].count);
+    if (seenCount === 0) {
+      for (const it of items) await db.query('INSERT INTO blog_posted (link) VALUES ($1) ON CONFLICT DO NOTHING', [it.link]);
+      console.log(`✅ Blog poller initialized — marked ${items.length} existing articles as seen`);
+      return;
+    }
+    for (const it of items.reverse()) { // oldest first so they post in order
+      const exists = await db.query('SELECT 1 FROM blog_posted WHERE link=$1', [it.link]);
+      if (exists.rows.length > 0) continue;
+      await db.query('INSERT INTO blog_posted (link) VALUES ($1) ON CONFLICT DO NOTHING', [it.link]);
+      const embed = makeEmbed('📝 New on The Pagan Shop Online Blog', `**${it.title}**\n\n🔗 [Read the full article](${it.link})`, 0x7B2FBE);
+      await channel.send({ embeds: [embed] });
+      console.log(`✅ Posted blog article to Discord: ${it.title}`);
+    }
+  }
 }
 
 const CATEGORY_RENAMES = {
@@ -1730,7 +1825,7 @@ client.login(process.env.DISCORD_TOKEN);
 
 async function handleAward(message, args) {
   if (!db) return message.reply('Database required.');
-  if (message.author.id !== CONFIG.OWNER_ID) return message.reply('❌ Only the server owner can award badges.');
+  if (!isOwner(message)) return message.reply('❌ Only the server owner can award badges.');
   const parts = args.split(/\s+/);
   const badgeKey = parts[0];
   const mention = message.mentions.members?.first();
@@ -1742,7 +1837,7 @@ async function handleAward(message, args) {
 }
 
 async function handleSyncRoles(message) {
-  if (message.author.id !== CONFIG.OWNER_ID) return message.reply('❌ Only the server owner can run this.');
+  if (!isOwner(message)) return message.reply('❌ Only the server owner can run this.');
   const msg = await message.reply('⏳ Syncing Seeker role to all members without a level role...');
   const guild = message.guild;
   await guild.members.fetch();
