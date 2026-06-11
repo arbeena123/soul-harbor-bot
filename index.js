@@ -546,11 +546,22 @@ async function handleXP(message) {
 }
 
 async function runWeeklyClass(guild) {
-  const channel = guild.channels.cache.find(c => {
-    const n = c.name.toLowerCase();
-    return c.type === 0 && (n.includes('class') || n.includes('study') || n.includes('education') || n.includes('learn'));
-  });
-  if (!channel) { console.log('No class channel found'); return; }
+  // Resolve the configured class channel first (CHANNEL_CLASS env var / 'spirit-keeping-classes').
+  // Only fall back to fuzzy matching if it doesn't exist — the old fuzzy-only logic matched
+  // BOTH #billys-education and #spirit-keeping-classes and posted to whichever came first in cache.
+  let channel = getChannel(guild, CONFIG.CHANNELS.CLASS);
+  if (!channel) {
+    channel = guild.channels.cache.find(c => {
+      const n = c.name.toLowerCase();
+      return c.type === 0 && (n.includes('class') || n.includes('study') || n.includes('education') || n.includes('learn'));
+    });
+  }
+  if (!channel) {
+    console.log(`❌ No class channel found. Looking for: "${CONFIG.CHANNELS.CLASS}"`);
+    console.log('Available channels:', guild.channels.cache.filter(c=>c.type===0||c.type===5).map(c=>c.name).join(', '));
+    return;
+  }
+  console.log(`✅ Class posting to #${channel.name}`);
   const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
   const topic = CLASS_TOPICS[topicIdx];
   const announceEmbed = new EmbedBuilder().setColor(0x7B2FBE)
@@ -575,7 +586,9 @@ async function runWeeklyClass(guild) {
       .setTitle(`📚 ${topic}`)
       .setDescription(lesson.substring(0, 4000))
       .setFooter({ text: `Soul Harbor Spirit Keeping Academy • ${attendees.length} students attending` }).setTimestamp();
-    await channel.send({ embeds: [lessonEmbed] });
+    const lessonMsg = await channel.send({ embeds: [lessonEmbed] });
+    // Pin so the lesson stays visible — Billy wants class content to persist (needs Manage Messages perm)
+    await lessonMsg.pin().catch(() => {});
   }
   const qaEmbed = new EmbedBuilder().setColor(0xC850C0)
     .setTitle('❓ Q&A Time — 15 Minutes')
@@ -653,6 +666,7 @@ const CONFIG = {
     GENERAL:       process.env.CHANNEL_GENERAL        || 'soulharbor-chat',
     WELCOME:       process.env.CHANNEL_WELCOME        || 'introductions',
     ANNOUNCEMENTS: process.env.CHANNEL_ANNOUNCEMENTS  || 'announcements',
+    CLASS:         process.env.CHANNEL_CLASS           || 'spirit-keeping-classes',
   },
   ROLES: {
     SPIRIT_SEEKER:    'Spirit Seeker',
@@ -1153,6 +1167,20 @@ client.on('messageCreate', async (message) => {
     if (lower === '!syncrolesall' || lower === '!sync roles all' || lower === '!syncroles' || lower === '!sync') {
       await handleSyncRoles(message); return;
     }
+    if (lower === '!lastclass') {
+      if (!db) { message.reply('🔮 The class archive requires a database.'); return; }
+      const r = await db.query(`SELECT topic, transcript, scheduled_at, attendees FROM classes WHERE transcript IS NOT NULL AND transcript != '' ORDER BY scheduled_at DESC LIMIT 1`);
+      if (!r.rows.length) { message.reply('📚 No archived classes yet — the first one will be saved automatically.'); return; }
+      const cls = r.rows[0];
+      const when = new Date(cls.scheduled_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+      const embed = new EmbedBuilder().setColor(0x7B2FBE)
+        .setTitle(`📚 ${cls.topic}`)
+        .setDescription(cls.transcript.substring(0, 4000))
+        .setFooter({ text: `Soul Harbor Spirit Keeping Academy • Class of ${when} • ${(cls.attendees || []).length} students attended` })
+        .setTimestamp();
+      message.channel.send({ embeds: [embed] });
+      return;
+    }
     if (lower === '!class' || lower === '!classes') {
       const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
       const embed = makeEmbed('📚 Spirit Keeping Academy',
@@ -1539,7 +1567,8 @@ async function handleHelp(message) {
     '**🎖️ Badges:**\n' +
     '`!badges` — See your earned badges\n' +
     '`!allbadges` — See all available achievement badges\n' +
-    '`!class` — View next class schedule\n\n' +
+    '`!class` — View next class schedule\n' +
+    '`!lastclass` — Repost the most recent class lesson\n\n' +
     '**⭐ How to Earn XP:**\n' +
     '💬 Chat — 2 XP/min · 🔮 Tarot — 15 XP · 🌙 Horoscope/Ghost — 8 XP\n' +
     '❓ Ask — 10 XP · 🕯️ Altar pic — 50 XP · ✨ Manifestation — 50 XP\n' +
