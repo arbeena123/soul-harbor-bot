@@ -715,7 +715,7 @@ async function saveTriviaHistory(question) {
 
 const inviteTracker = new Map();
 
-const SPIRIT_SYSTEM_PROMPT = `You are Soul Harbor, a mystical AI spirit guide and companion for The Pagan Shop Online's Discord community (thepaganshoponline.com). 
+const SPIRIT_SYSTEM_PROMPT = `You are Soul Harbor, a mystical spirit guide and companion for The Pagan Shop Online's Discord community (thepaganshoponline.com). 
 
 You are knowledgeable about:
 - Spirit keeping, spirit companions, and entity work
@@ -1019,7 +1019,7 @@ client.on('guildMemberAdd', async (member) => {
     `🔮 Welcome, ${member.displayName}!`,
     `The spirits have been expecting you... Welcome to **The Pagan Shop Online** Discord. \n\n` +
     `This is the gathering place for spirit keepers, practitioners, and seekers of the mystical arts.\n\n` +
-    `**I am Soul Harbor, the AI spirit guide of this community.** Here is how to work with me:\n\n` +
+    `**I am Soul Harbor, your mystical spirit guide for this community.** Here is how to work with me:\n\n` +
     `🃏 Ask me for a tarot reading — *"Can you do a 3 card reading"* or *"give me a 6 card spread"*\n` +
     `👻 Ask me for a ghost story — *"tell me a ghost story"*\n` +
     `🌙 Ask your horoscope — *"what is my Scorpio horoscope"*\n` +
