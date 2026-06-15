@@ -261,7 +261,7 @@ async function handleLevelUp(userId, username, tier, guild) {
       const announceEmbed = new EmbedBuilder()
         .setColor(LEVEL_ROLE_COLORS[tier.name] || 0x7B2FBE)
         .setTitle(`🌟 Level Up!`)
-        .setDescription(`🎉 Congratulations ${member}! You are now a **${tier.name}**!\n\nKeep earning XP to unlock more rewards! Type \`!profile\` to see your stats.`)
+        .setDescription(`🎉 Congratulations ${member}! You are now a **${tier.name}**!\n\nKeep earning XP to unlock more rewards! Type '!profile' to see your stats.`)
         .setThumbnail(member.user.displayAvatarURL())
         .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' })
         .setTimestamp();
@@ -2169,7 +2169,7 @@ async function handleCleanMemberRole(message) {
   await guild.members.fetch();
   const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
   if (!memberRole) return message.reply('ℹ️ No "Member" role found in this server — nothing to clean up!');
-  const msg = await message.reply(\`⏳ Removing "Member" role from all \${guild.memberCount} members... this may take a moment.\`);
+  const msg = await message.reply(`⏳ Removing "Member" role from all ${guild.memberCount} members... this may take a moment.`);
   let removed = 0, skipped = 0;
   for (const [, member] of guild.members.cache) {
     if (member.user.bot) continue;
@@ -2179,5 +2179,5 @@ async function handleCleanMemberRole(message) {
       await new Promise(r => setTimeout(r, 300)); // rate limit safety
     } else { skipped++; }
   }
-  msg.edit(\`✅ Done! Removed "Member" role from **\${removed}** members. **\${skipped}** didn't have it.\`);
+  msg.edit(`✅ Done! Removed "Member" role from **${removed}** members. **${skipped}** didn't have it.`);
 }
