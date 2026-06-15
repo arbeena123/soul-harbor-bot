@@ -565,7 +565,7 @@ async function runWeeklyClass(guild) {
   const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
   const topic = CLASS_TOPICS[topicIdx];
   const announceEmbed = new EmbedBuilder().setColor(0x7B2FBE)
-    .setTitle(`📚 Spirit Keeping Class Starting: ${topic}`)
+    .setTitle(`📚 Soul Harbor Spirit Keeping Classes: ${topic}`)
     .setDescription('Soul Harbor is now teaching!\n\nReact with 📖 to mark attendance and earn **30 XP**!\n\nClass begins in **2 minutes**...')
     .setTimestamp();
   const msg = await channel.send({ embeds: [announceEmbed] });
@@ -585,7 +585,7 @@ async function runWeeklyClass(guild) {
     const lessonEmbed = new EmbedBuilder().setColor(0x7B2FBE)
       .setTitle(`📚 ${topic}`)
       .setDescription(lesson.substring(0, 4000))
-      .setFooter({ text: `Soul Harbor Spirit Keeping Academy • ${attendees.length} students attending` }).setTimestamp();
+      .setFooter({ text: `Soul Harbor Spirit Keeping Classes • ${attendees.length} students attending` }).setTimestamp();
     const lessonMsg = await channel.send({ embeds: [lessonEmbed] });
     // Pin so the lesson stays visible — Billy wants class content to persist (needs Manage Messages perm)
     await lessonMsg.pin().catch(() => {});
@@ -667,6 +667,7 @@ const CONFIG = {
     WELCOME:       process.env.CHANNEL_WELCOME        || 'introductions',
     ANNOUNCEMENTS: process.env.CHANNEL_ANNOUNCEMENTS  || 'announcements',
     CLASS:         process.env.CHANNEL_CLASS           || 'spirit-keeping-classes',
+    SERVER_GUIDE:  process.env.CHANNEL_SERVER_GUIDE    || 'server-guide',
   },
   ROLES: {
     SPIRIT_SEEKER:    'Spirit Seeker',
@@ -801,7 +802,8 @@ client.once('ready', async () => {
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (guild) {
     await ensureLevelRoles(guild);
-    await ensureAdminChannel(guild);  // ← NEW: creates private admin channel
+    await ensureAdminChannel(guild);  // ← creates private admin channel
+    await ensureServerGuide(guild);   // ← creates public read-only server guide channel
   }
   await scheduleDailyTasks();
 });
@@ -837,7 +839,7 @@ async function ensureAdminChannel(guild) {
         '**This channel is only visible to you, Billy.**\n\n' +
         '━━━━━━━━━━━━━━━━━━━━━━\n' +
         '**🎖️ Award Badges (type the command OR just say it naturally)**\n\n' +
-        '`!award verified_patron @user` — Verified buyer/reviewer\n' +
+        '`!award verified_patron @user` — Verified buyer/reviewer (also auto-assigns VIP Keeper role)\n' +
         '`!award trivia_master @user` — Won 25+ trivia contests\n' +
         '`!award the_seer @user` — 25+ tarot readings\n' +
         '`!award greeter @user` — Referred 3 friends\n' +
@@ -857,8 +859,14 @@ async function ensureAdminChannel(guild) {
         '"sync all roles" or "sync roles"\n\n' +
         '━━━━━━━━━━━━━━━━━━━━━━\n' +
         '**🔄 Role Sync**\n\n' +
-        '`!syncrolesall` — Assign Seeker role to all members missing one\n' +
-        '*(New members get Seeker automatically on join — you only need this once for existing members)*\n\n' +
+        '`!syncrolesall` — Assign Seeker to all members without a level role + remove Member role from everyone\n' +
+        '`!cleanmemberrole` — One-shot: remove the Member role from every member (run once to clean up)\n' +
+        '*(New members now start as Seeker only — Member role is no longer auto-assigned)*\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🗑️ Message Moderation (Owner & Mods)**\n\n' +
+        '`!purge 5` — Delete the last 5 messages in this channel (1–100)\n' +
+        '`!deletemsg [messageID]` — Delete one specific message by its ID\n' +
+        '*(To get a message ID: right-click message → Copy Message ID. Requires Developer Mode in Discord settings)*\n\n' +
         '━━━━━━━━━━━━━━━━━━━━━━\n' +
         '**📊 View Stats**\n\n' +
         '`!leaderboard` — Top 10 members by XP\n' +
@@ -882,13 +890,104 @@ async function ensureAdminChannel(guild) {
   }
 }
 
+// ─── PUBLIC READ-ONLY SERVER GUIDE CHANNEL ───────────────
+async function ensureServerGuide(guild) {
+  // Check if it already exists (by name, ignoring emoji prefix)
+  const existing = guild.channels.cache.find(c =>
+    c.name.toLowerCase().replace(/[^a-z0-9-]/g, '').includes('serverguide') ||
+    c.name.toLowerCase().replace(/[^a-z0-9-]/g, '').includes('server-guide') ||
+    c.name.toLowerCase().includes('server-guide')
+  );
+  if (existing) return existing;
+
+  try {
+    const guideChannel = await guild.channels.create({
+      name: '📖・server-guide',
+      type: 0,
+      permissionOverwrites: [
+        // Everyone can READ but NOT write — read-only pinboard
+        { id: guild.roles.everyone, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
+        // Bot can write (to post the guide)
+        { id: guild.client.user.id, allow: [PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.ManageMessages] },
+      ],
+      reason: 'Soul Harbor public read-only server guide',
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor(0x7B2FBE)
+      .setTitle('🔮 Soul Harbor — Commands & Guide')
+      .setDescription(
+        'Welcome to **Soul Harbor**, the spirit of The Pagan Shop Online! 👋\n\n' +
+        '*This channel is read-only. Use the commands below anywhere Soul Harbor can hear you!*\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🎮 Core Commands**\n\n' +
+        '`!tarot` — Get a personal tarot reading (+15 XP)\n' +
+        '`!ghost` — Hear a haunting ghost story (+8 XP)\n' +
+        '`!trivia` — Start a trivia contest, win discount codes! (+75 XP)\n' +
+        '`!horoscope [sign]` — Get your daily horoscope (+8 XP)\n' +
+        '`!spirit [name]` — Learn about any spirit or entity\n' +
+        '`!ask [question]` — Ask Soul Harbor anything (+10 XP)\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**⭐ XP, Levels & Badges**\n\n' +
+        '`!xp` — Check your XP and current level\n' +
+        '`!profile` — View your full profile card\n' +
+        '`!badges` — See your roles and achievement badges\n' +
+        '`!allbadges` — Browse all available badges\n' +
+        '`!leaderboard` — Top 10 members by XP\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🏆 XP Level Ranks**\n\n' +
+        '🔮 Seeker → 🌿 Initiate (800 XP) → 🌑 Neophyte (2,500 XP)\n' +
+        '🌙 Practitioner (5,000 XP) → ✨ Mystic (9,000 XP)\n' +
+        '🔥 Magus (18,000 XP) → 🌟 Elder (32,000 XP) → 👑 Grandmaster (50,000 XP)\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🎖️ Earnable Badges**\n\n' +
+        '⚡ Lightning Reflexes — Answer trivia in under 60 seconds\n' +
+        '🏆 Trivia Master — Win 25 trivia contests\n' +
+        '🔮 The Seer — Complete 25 tarot readings\n' +
+        '👋 Greeter — Refer 3 friends\n' +
+        '🌙 Coven Builder — Refer 10 friends\n' +
+        '👑 High Priest/ess — Refer 25+ friends\n' +
+        '🕯️ Altar Keeper — Post 10 altar pictures\n' +
+        '✨ Spell Weaver — Post 10 spells or rituals\n' +
+        '🌟 The Manifestor — Post 10 manifestation pics\n' +
+        '👁️ Paranormal Witness — Share 5 paranormal stories\n' +
+        '📚 Scholar of the Veil — Attend 5 spirit keeping classes\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**💬 Natural Language**\n\n' +
+        'You can also talk to Soul Harbor naturally!\n' +
+        '*"Soul Harbor, what are my badges?"*\n' +
+        '*"Hey Soul Harbor, check my level"*\n' +
+        '*"Soul Harbor, tell me about my XP"*\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**📖 Soul Harbor Spirit Keeping Classes**\n\n' +
+        '`!class` — See the next scheduled class topic\n' +
+        '`!lastclass` — View the most recent class recap\n' +
+        'Every Wednesday at 6 PM EST 🕯️\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🛍️ Shop & Referrals**\n\n' +
+        '`!invite` — Get your personal referral link\n' +
+        'Refer friends → earn XP → unlock badges!\n' +
+        'Visit us at **thepaganshoponline.com** 🔮'
+      )
+      .setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online • Read-only channel' })
+      .setTimestamp();
+
+    const guideMsg = await guideChannel.send({ embeds: [embed] });
+    await guideMsg.pin().catch(() => {});
+    console.log('✅ Server guide channel created and pinned');
+    return guideChannel;
+  } catch(e) {
+    console.error('Could not create server guide channel:', e.message);
+    return null;
+  }
+}
+
+
 // ─── WELCOME NEW MEMBERS ─────────────────────────────────
 client.on('guildMemberAdd', async (member) => {
   const guild = member.guild;
 
-  // Auto-assign Member role
-  const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
-  if (memberRole) member.roles.add(memberRole).catch(() => {});
+  // Member role auto-assign removed — Seeker is the base role for all new members
 
   // Auto-assign Seeker role (Level 1) — NEW MEMBERS ARE HANDLED AUTOMATICALLY
   let seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
@@ -1080,6 +1179,14 @@ client.on('messageCreate', async (message) => {
                       lower.startsWith(answerLower) ||
                       allWordsPresent;
     console.log(`[TRIVIA] Expected: "${answerClean}" | Got: "${cleanedMsg}" | AllWords: ${allWordsPresent} | Match: ${isCorrect}`);
+
+    // ── WRONG ANSWER FEEDBACK ──
+    // Only respond if: trivia is still open, no winner yet, message isn't a command,
+    // and it's short enough to be an actual answer attempt (not casual chat)
+    if (!trivia.winnerId && !isCorrect && !content.startsWith('!') && content.length <= 80 && cleanedMsg.length > 0) {
+      await message.reply('❌ Sorry, that\'s not quite right! Give it another try 🔮').catch(() => {});
+    }
+
     if (!trivia.winnerId && isCorrect) {
       trivia.winnerId = userId;
       const code = generateCouponCode();
@@ -1093,17 +1200,61 @@ client.on('messageCreate', async (message) => {
         if (mTrivia && mTrivia.trivia_wins >= 25) await awardBadge(userId, message.author.username, 'trivia_master', message.guild);
         if (elapsed <= 60) await awardBadge(userId, message.author.username, 'lightning_reflexes', message.guild);
       }
+      // ── DELIVER COUPON — DM first, fall back to channel if DMs are off ──
+      let dmSuccess = false;
       try {
         await message.author.send(
           `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**\n\nYour exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n# \`${code}\`\n\nUse it at **thepaganshoponline.com** at checkout.\nValid for 7 days. Keep this code private! 🛍️🔮`
         );
-      } catch(e) { console.log('Could not DM winner:', e.message); }
-      const embed = makeEmbed('🏆 We Have a Winner!',
-        `🎉 Congratulations ${message.author}! You answered correctly!\n\nYour discount code has been sent to your **DMs** — check your private messages! 🔮\n\nThanks everyone for playing! Next contest coming soon. 🏆`, 0xFFD700);
-      message.channel.send({ embeds: [embed] });
+        dmSuccess = true;
+        console.log(`✅ Coupon DM sent to ${message.author.username}: ${code}`);
+      } catch(e) {
+        console.log(`⚠️ Could not DM winner ${message.author.username}:`, e.message);
+      }
+
+      if (dmSuccess) {
+        // Normal winner announcement — code was sent privately
+        const embed = makeEmbed('🏆 We Have a Winner!',
+          `🎉 Congratulations ${message.author}! You answered correctly!\n\nYour discount code has been sent to your **DMs** — check your private messages! 🔮\n\nThanks everyone for playing! Next contest coming soon. 🏆`, 0xFFD700);
+        message.channel.send({ embeds: [embed] });
+      } else {
+        // DM failed — post code in channel as a reply, auto-delete after 90s
+        const embed = makeEmbed('🏆 We Have a Winner!',
+          `🎉 Congratulations ${message.author}! You answered correctly!\n\n📬 *I couldn\'t send you a DM (your DMs may be off).* Your code is below — **screenshot it quickly**, this message deletes in 90 seconds! 🔮\n\nThanks everyone for playing! Next contest coming soon. 🏆`, 0xFFD700);
+        const winMsg = await message.channel.send({ embeds: [embed] });
+
+        // Send code as a separate message so it's easy to screenshot
+        const codeMsg = await message.channel.send(
+          `${message.author} 🎁 Your **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**: \`${code}\`\n*(Valid 7 days at thepaganshoponline.com — this message will disappear soon!)*`
+        );
+
+        // Alert Billy that DM failed so he can follow up manually if needed
+        try {
+          const billy = await message.client.users.fetch(CONFIG.OWNER_ID);
+          if (billy) billy.send(`⚠️ **Trivia Winner DM Failed**\n**Winner:** ${message.author.tag}\n**Code:** \`${code}\`\n\nTheir DMs are off — the code was posted in the channel and will auto-delete. You may want to follow up with them directly.`).catch(() => {});
+        } catch(_) {}
+
+        // Auto-delete code message after 90 seconds
+        setTimeout(() => {
+          codeMsg.delete().catch(() => {});
+          winMsg.delete().catch(() => {});
+        }, 90_000);
+      }
       triviaActive.delete(message.channel.id);
-      const role = message.guild.roles.cache.find(r => r.name === CONFIG.ROLES.CONTEST_CHAMPION);
-      if (role) message.member.roles.add(role).catch(console.error);
+      // Auto-create Contest Champion role if it does not exist yet, then assign
+      let champRole = message.guild.roles.cache.find(r => r.name === CONFIG.ROLES.CONTEST_CHAMPION);
+      if (!champRole) {
+        try {
+          champRole = await message.guild.roles.create({
+            name: CONFIG.ROLES.CONTEST_CHAMPION,
+            color: 0xFFD700,
+            reason: 'Soul Harbor: first trivia winner — auto-created Contest Champion role',
+            hoist: false,
+          });
+          console.log(`✅ Created "${CONFIG.ROLES.CONTEST_CHAMPION}" role automatically`);
+        } catch(e) { console.error('Could not create Contest Champion role:', e.message); }
+      }
+      if (champRole) await message.member.roles.add(champRole).catch(console.error);
       return;
     }
   }
@@ -1166,6 +1317,9 @@ client.on('messageCreate', async (message) => {
     // ── FIX: accept all variations of sync command ──
     if (lower === '!syncrolesall' || lower === '!sync roles all' || lower === '!syncroles' || lower === '!sync') {
       await handleSyncRoles(message); return;
+    if (lower === '!cleanmemberrole' || lower === '!clearmemberrole' || lower === '!removemember') {
+      await handleCleanMemberRole(message); return;
+    }
     }
     if (lower === '!lastclass') {
       if (!db) { message.reply('🔮 The class archive requires a database.'); return; }
@@ -1176,14 +1330,14 @@ client.on('messageCreate', async (message) => {
       const embed = new EmbedBuilder().setColor(0x7B2FBE)
         .setTitle(`📚 ${cls.topic}`)
         .setDescription(cls.transcript.substring(0, 4000))
-        .setFooter({ text: `Soul Harbor Spirit Keeping Academy • Class of ${when} • ${(cls.attendees || []).length} students attended` })
+        .setFooter({ text: `Soul Harbor Spirit Keeping Classes • Class of ${when} • ${(cls.attendees || []).length} students attended` })
         .setTimestamp();
       message.channel.send({ embeds: [embed] });
       return;
     }
     if (lower === '!class' || lower === '!classes') {
       const topicIdx = Math.floor(Date.now() / (7*24*60*60*1000)) % CLASS_TOPICS.length;
-      const embed = makeEmbed('📚 Spirit Keeping Academy',
+      const embed = makeEmbed('📚 Soul Harbor Spirit Keeping Classes',
         `**Next Class:** ${CLASS_TOPICS[topicIdx]}\n🕖 Every Wednesday at 6PM EST\n\nReact with 📖 when class starts to earn **30 XP**!\n\nUse \`!ask <question>\` to ask Soul Harbor anything.`
       );
       message.channel.send({ embeds: [embed] }); return;
@@ -1202,6 +1356,49 @@ client.on('messageCreate', async (message) => {
       message.reply('✅ Check your private 🤖・soul-harbor-admin channel for the full command reference!');
       return;
     }
+
+    // ── !purge [1-100] — delete last N messages (owner + mods only) ──
+    if (lower.startsWith('!purge') && (isOwner(message) || isStaff(message))) {
+      const args = content.slice(6).trim();
+      const count = parseInt(args) || 1;
+      if (count < 1 || count > 100) {
+        message.reply('❌ Please specify a number between 1 and 100. Example: `!purge 5`');
+        return;
+      }
+      try {
+        // Delete the command message itself first
+        await message.delete().catch(() => {});
+        const fetched = await message.channel.messages.fetch({ limit: count });
+        await message.channel.bulkDelete(fetched, true); // true = skip messages older than 14 days
+        const confirm = await message.channel.send(`🗑️ Deleted ${fetched.size} message(s).`);
+        setTimeout(() => confirm.delete().catch(() => {}), 4000); // auto-delete confirmation after 4s
+      } catch (err) {
+        console.error('Purge error:', err);
+        message.channel.send('❌ Could not delete some messages (they may be older than 14 days — delete those manually).').then(m => setTimeout(() => m.delete().catch(() => {}), 5000));
+      }
+      return;
+    }
+
+    // ── !deletemsg [messageID] — delete a specific message by ID (owner + mods only) ──
+    if (lower.startsWith('!deletemsg') && (isOwner(message) || isStaff(message))) {
+      const msgId = content.slice(10).trim();
+      if (!msgId) {
+        message.reply('❌ Please provide a message ID. Example: `!deletemsg 1234567890123456789`\n💡 To get a message ID: right-click the message → Copy Message ID (Developer Mode must be on).');
+        return;
+      }
+      try {
+        const targetMsg = await message.channel.messages.fetch(msgId);
+        await targetMsg.delete();
+        await message.delete().catch(() => {});
+        const confirm = await message.channel.send('🗑️ Message deleted.');
+        setTimeout(() => confirm.delete().catch(() => {}), 4000);
+      } catch (err) {
+        console.error('Delete msg error:', err);
+        message.reply('❌ Could not find or delete that message. Make sure the ID is correct and the message is in this channel.');
+      }
+      return;
+    }
+
     return;
   }
 
@@ -1338,8 +1535,40 @@ client.on('messageCreate', async (message) => {
       return;
     }
 
-    if (cleanLower.match(/badge|badges|my rank|my level|achievements/)) { await handleBadges(message); return; }
-    if (cleanLower.match(/help|commands|what can you do|what do you do/)) { await handleHelp(message); return; }
+    // ── USER NATURAL LANGUAGE COMMANDS ──
+    // Triggered when Soul Harbor is @mentioned or spoken to naturally
+    // XP / level / rank
+    if (cleanLower.match(/\bmy (xp|level|rank|points|progress|tier)\b|check my (xp|level|rank|progress)|how much xp|what.?s my (level|rank|xp|tier)|show.*my (level|rank|xp)/)) {
+      await handleXP(message); return;
+    }
+    // Profile
+    if (cleanLower.match(/\bmy profile\b|show.*profile|view.*profile|profile card|see my (stats|profile)/)) {
+      await handleProfile(message); return;
+    }
+    // Badges / achievements / roles
+    if (cleanLower.match(/\b(my )?(badges|achievements|roles|rank|title)\b|what badges|show.*badge|earned.*badge|do i have (any )?(badge|role|achievement)|what.?s my (rank|title)/)) {
+      await handleBadges(message); return;
+    }
+    // Leaderboard
+    if (cleanLower.match(/leaderboard|top (members|players|10)|who.?s (winning|on top|leading)|rankings/)) {
+      await handleLeaderboard(message); return;
+    }
+    // Referral / invite
+    if (cleanLower.match(/\b(my )?(invite|referral|refer|link)\b|invite (link|people|friends)|how (do i|can i) (refer|invite)/)) {
+      await handleInvite(message); return;
+    }
+    // All badges list
+    if (cleanLower.match(/all badges|what badges (are there|can i earn|exist)|list.*badge|available badges/)) {
+      const embed = new EmbedBuilder().setColor(0x7B2FBE).setTitle('🎖️ Soul Harbor Badges');
+      const earned = db ? ((await dbGet(userId))?.badges || []) : [];
+      for (const [key, b] of Object.entries(BADGES_DEF)) {
+        embed.addFields({ name: `${b.emoji} ${b.name} ${earned.includes(key)?'✅':'🔒'}`, value: b.desc, inline: true });
+      }
+      embed.setFooter({ text: '🔮 Soul Harbor • The Pagan Shop Online' }).setTimestamp();
+      message.channel.send({ embeds: [embed] }); return;
+    }
+    // Help / commands
+    if (cleanLower.match(/help|commands|what can you do|what do you do|how do i|how to/)) { await handleHelp(message); return; }
 
     await handleChat(message, cleanContent);
   }
@@ -1474,13 +1703,15 @@ async function handleTrivia(message) {
   if (!qMatch || !aMatch) { message.channel.send('🎯 Could not generate a question. Try again!'); return; }
   const question = qMatch[1].trim();
   const answer = aMatch[1].trim();
-  triviaActive.set(message.channel.id, { answer, winnerId: null, startTime: Date.now() });
+  const sessionToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  triviaActive.set(message.channel.id, { answer, winnerId: null, startTime: Date.now(), token: sessionToken });
   recentTriviaQuestions.push(question);
   if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
   await saveTriviaHistory(question);
   message.channel.send({ embeds: [makeEmbed('🏆 Spirit Trivia Contest!', `**${question}**\n\nFirst correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n⏱️ You have 5 minutes!`, 0xFFD700)] });
   setTimeout(() => {
-    if (triviaActive.has(message.channel.id) && !triviaActive.get(message.channel.id).winnerId) {
+    const currentSession = triviaActive.get(message.channel.id);
+    if (currentSession && currentSession.token === sessionToken && !currentSession.winnerId) {
       triviaActive.delete(message.channel.id);
       message.channel.send({ embeds: [makeEmbed('⏱️ Time\'s Up!', `Nobody answered in time! The answer was: **${answer}**\n\nBetter luck next time! 🔮`)] });
     }
@@ -1527,9 +1758,20 @@ async function handleCoupon(message) {
 }
 
 async function handleBadges(message) {
-  const roles = message.member.roles.cache
-    .filter(r => Object.values(CONFIG.ROLES).includes(r.name))
-    .map(r => `✅ ${r.name}`).join('\n');
+  // Include both special CONFIG.ROLES names AND XP level role names (Seeker, Initiate, etc.)
+  const levelRoleNames = LEVELS.map(l => l.name);
+  const allKnownRoles = [...Object.values(CONFIG.ROLES), ...levelRoleNames];
+
+  const memberRoles = message.member.roles.cache.filter(r => allKnownRoles.includes(r.name));
+
+  // Separate level roles from special roles for cleaner display
+  const levelRole = memberRoles.find(r => levelRoleNames.includes(r.name));
+  const specialRoles = memberRoles.filter(r => Object.values(CONFIG.ROLES).includes(r.name));
+
+  let rolesDisplay = '';
+  if (levelRole) rolesDisplay += `✨ **Rank:** ${levelRole.name}\n`;
+  if (specialRoles.size) rolesDisplay += specialRoles.map(r => `✅ ${r.name}`).join('\n');
+
   let phase2 = '';
   if (db) {
     const m = await dbGet(message.author.id);
@@ -1538,8 +1780,11 @@ async function handleBadges(message) {
       ? '\n\n**🎖️ Achievement Badges:**\n' + earned.map(k => BADGES_DEF[k] ? `${BADGES_DEF[k].emoji} ${BADGES_DEF[k].name}` : '').filter(Boolean).join(' · ')
       : '\n\n*No achievement badges yet — post altar pics, win trivia, attend classes!*';
   }
+
+  const fallback = "You\'re just getting started! 🔮 Participate to earn ranks and badges.\n\n**How to earn roles:**\n🔮 Seeker — join the server (you already are one!)\n🏆 Contest Champion — win a trivia contest\n💎 VIP Keeper — make a purchase from the shop\n⭐ Spirit Elder — long time active member";
+
   message.channel.send({ embeds: [makeEmbed(`🏅 Badges for ${message.author.displayName}`,
-    (roles || 'No server roles yet! Participate to earn badges! 🔮\n\n**How to earn roles:**\n🔮 Spirit Seeker — join the server\n🏆 Contest Champion — win a trivia contest\n💎 VIP Keeper — make a purchase from the shop\n⭐ Spirit Elder — long time active member') + phase2 +
+    (rolesDisplay.trim() || fallback) + phase2 +
     '\n\n*Use `!allbadges` to see all achievement badges*')] });
 }
 
@@ -1643,13 +1888,15 @@ async function scheduleDailyTasks() {
     if (!qMatch || !aMatch) { console.log('❌ Trivia generation returned bad format:', result.substring(0, 120)); return; }
     const question = qMatch[1].trim();
     const answer = aMatch[1].trim();
-    triviaActive.set(channel.id, { answer, winnerId: null, startTime: Date.now() });
+    const dailyToken = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    triviaActive.set(channel.id, { answer, winnerId: null, startTime: Date.now(), token: dailyToken });
     recentTriviaQuestions.push(question);
     if (recentTriviaQuestions.length > 50) recentTriviaQuestions.shift();
     await saveTriviaHistory(question);
     await channel.send({ embeds: [makeEmbed('🏆 Daily Spirit Trivia!', `**${question}**\n\nFirst correct answer wins a **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**! 🎁\n\n⏱️ You have 5 minutes!`, 0xFFD700)] });
     setTimeout(() => {
-      if (triviaActive.has(channel.id) && !triviaActive.get(channel.id).winnerId) {
+      const currentDaily = triviaActive.get(channel.id);
+      if (currentDaily && currentDaily.token === dailyToken && !currentDaily.winnerId) {
         triviaActive.delete(channel.id);
         channel.send({ embeds: [makeEmbed('⏱️ Time\'s Up!', `Nobody answered! The answer was: **${answer}**\n\nNew contest tomorrow! 🔮`)] });
       }
@@ -1777,6 +2024,8 @@ async function handleSetup(message) {
   const msg = await message.reply('⏳ Starting channel organization... this will take 2-3 minutes.');
   const guild = message.guild;
   await guild.channels.fetch();
+  await ensureAdminChannel(guild);
+  await ensureServerGuide(guild);
   let renamed = 0, errors = 0;
 
   const existingCats = guild.channels.cache.filter(c => c.type === 4);
@@ -1862,28 +2111,73 @@ async function handleAward(message, args) {
   if (!BADGES_DEF[badgeKey]) return message.reply(`❌ Unknown badge: \`${badgeKey}\`\n\nValid keys: ${Object.keys(BADGES_DEF).join(', ')}`);
   await awardBadge(mention.id, mention.user.username, badgeKey, message.guild);
   const b = BADGES_DEF[badgeKey];
-  message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!`);
+
+  // ── AUTO-LINK: verified_patron badge → also assign VIP Keeper role ──
+  // Billy only needs one command; both get applied automatically
+  if (badgeKey === 'verified_patron') {
+    let vipRole = message.guild.roles.cache.find(r => r.name === CONFIG.ROLES.VIP_KEEPER);
+    if (!vipRole) {
+      try {
+        vipRole = await message.guild.roles.create({
+          name: CONFIG.ROLES.VIP_KEEPER,
+          color: 0x00B0FF,
+          reason: 'Soul Harbor: auto-created VIP Keeper role via verified_patron award',
+          hoist: false,
+        });
+      } catch(e) { console.error('Could not create VIP Keeper role:', e.message); }
+    }
+    if (vipRole) await mention.roles.add(vipRole).catch(() => {});
+  }
+
+  message.reply(`✅ Awarded **${b.emoji} ${b.name}** to ${mention}!${badgeKey === 'verified_patron' ? ' (VIP Keeper role also assigned 💎)' : ''}`);
 }
 
 async function handleSyncRoles(message) {
   if (!isOwner(message)) return message.reply('❌ Only the server owner can run this.');
-  const msg = await message.reply('⏳ Syncing Seeker role to all members without a level role...');
+  const msg = await message.reply('⏳ Syncing roles — assigning Seeker to all members without a level role, and removing Member role from everyone...');
   const guild = message.guild;
   await guild.members.fetch();
   const seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
   if (!seekerRole) return msg.edit('❌ Seeker role not found. Restart the bot first to create it.');
+  const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
   const levelRoleNames = LEVELS.map(l => l.name);
-  let synced = 0, skipped = 0;
+  let synced = 0, cleaned = 0, skipped = 0;
   for (const [, member] of guild.members.cache) {
     if (member.user.bot) continue;
     if (await isExcludedFromXP(member)) { skipped++; continue; }
+    // Remove Member role if they have it
+    if (memberRole && member.roles.cache.has(memberRole.id)) {
+      await member.roles.remove(memberRole).catch(() => {});
+      cleaned++;
+    }
+    // Add Seeker if they have no level role yet
     const hasLevelRole = member.roles.cache.some(r => levelRoleNames.includes(r.name));
     if (!hasLevelRole) {
       await member.roles.add(seekerRole).catch(() => {});
       if (db) await dbEnsure(member.id, member.user.username);
       synced++;
-      await new Promise(r => setTimeout(r, 300));
+    } else { skipped++; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  msg.edit(`✅ Done!\n\n🔮 **Seeker assigned:** ${synced} members\n🗑️ **Member role removed:** ${cleaned} members\n⏭️ **Skipped (already have level role):** ${skipped}`);
+}
+
+// ── !cleanmemberrole — one-shot remove Member role from everyone (owner only) ──
+async function handleCleanMemberRole(message) {
+  if (!isOwner(message)) return message.reply('❌ Only the server owner can run this.');
+  const guild = message.guild;
+  await guild.members.fetch();
+  const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
+  if (!memberRole) return message.reply('ℹ️ No "Member" role found in this server — nothing to clean up!');
+  const msg = await message.reply(\`⏳ Removing "Member" role from all \${guild.memberCount} members... this may take a moment.\`);
+  let removed = 0, skipped = 0;
+  for (const [, member] of guild.members.cache) {
+    if (member.user.bot) continue;
+    if (member.roles.cache.has(memberRole.id)) {
+      await member.roles.remove(memberRole).catch(() => {});
+      removed++;
+      await new Promise(r => setTimeout(r, 300)); // rate limit safety
     } else { skipped++; }
   }
-  msg.edit(`✅ Done! Assigned Seeker role to **${synced}** members. Skipped **${skipped}** (already have a role or excluded).`);
+  msg.edit(\`✅ Done! Removed "Member" role from **\${removed}** members. **\${skipped}** didn't have it.\`);
 }
