@@ -2164,7 +2164,7 @@ async function handleSyncRoles(message) {
   await guild.members.fetch();
   const seekerRole = guild.roles.cache.find(r => r.name === 'Seeker');
   if (!seekerRole) return msg.edit('❌ Seeker role not found. Restart the bot first to create it.');
-  const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
+  const memberRole = guild.roles.cache.find(r => (r.name.toLowerCase() === 'member' || r.name.toLowerCase() === 'members'));
   const levelRoleNames = LEVELS.map(l => l.name);
   let synced = 0, cleaned = 0, skipped = 0;
   for (const [, member] of guild.members.cache) {
@@ -2192,7 +2192,7 @@ async function handleCleanMemberRole(message) {
   if (!isOwner(message)) return message.reply('❌ Only the server owner can run this.');
   const guild = message.guild;
   await guild.members.fetch();
-  const memberRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'member');
+  const memberRole = guild.roles.cache.find(r => (r.name.toLowerCase() === 'member' || r.name.toLowerCase() === 'members'));
   if (!memberRole) return message.reply('ℹ️ No "Member" role found in this server — nothing to clean up!');
   const msg = await message.reply(`⏳ Removing "Member" role from all ${guild.memberCount} members... this may take a moment.`);
   let removed = 0, skipped = 0;
