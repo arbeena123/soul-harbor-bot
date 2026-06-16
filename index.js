@@ -1337,9 +1337,9 @@ client.on('messageCreate', async (message) => {
     // ── FIX: accept all variations of sync command ──
     if (lower === '!syncrolesall' || lower === '!sync roles all' || lower === '!syncroles' || lower === '!sync') {
       await handleSyncRoles(message); return;
+    }
     if (lower === '!cleanmemberrole' || lower === '!clearmemberrole' || lower === '!removemember') {
       await handleCleanMemberRole(message); return;
-    }
     }
     if (lower === '!lastclass') {
       if (!db) { message.reply('🔮 The class archive requires a database.'); return; }
