@@ -229,10 +229,21 @@ async function ensureLevelRoles(guild) {
           color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
           reason: 'Soul Harbor XP level role',
           hoist: true,
+          permissions: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'AddReactions', 'AttachFiles', 'UseExternalEmojis', 'EmbedLinks'],
         });
         console.log(`✅ Created role: ${tier.name}`);
         await new Promise(r => setTimeout(r, 500));
       } catch(e) { console.error(`Failed to create role ${tier.name}:`, e.message); }
+    } else {
+      // Fix existing roles that were created without permissions
+      const requiredPerms = ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'AddReactions', 'AttachFiles', 'UseExternalEmojis', 'EmbedLinks'];
+      const hasView = existing.permissions.has('ViewChannel');
+      if (!hasView) {
+        try {
+          await existing.setPermissions(requiredPerms, 'Soul Harbor: adding missing channel view permissions');
+          console.log(`🔧 Fixed permissions for existing role: ${tier.name}`);
+        } catch(e) { console.error(`Could not fix permissions for ${tier.name}:`, e.message); }
+      }
     }
   }
 }
@@ -242,8 +253,11 @@ async function handleLevelUp(userId, username, tier, guild) {
     const member = await guild.members.fetch(userId);
     if (await isExcludedFromXP(member)) { console.log(`Skipping level up rewards for excluded user: ${username}`); return; }
 
-    const oldRoles = LEVELS.map(l => guild.roles.cache.find(r => r.name === l.name)).filter(Boolean);
-    await member.roles.remove(oldRoles).catch(() => {});
+    // Keep old level roles (stacking per Billy) — new role's higher position makes it the display color
+    // Only remove roles ABOVE the new tier (in case of a reset/demotion scenario)
+    const newTierIdx = LEVELS.findIndex(l => l.level === tier.level);
+    const higherRoles = LEVELS.slice(newTierIdx + 1).map(l => guild.roles.cache.find(r => r.name === l.name)).filter(Boolean);
+    if (higherRoles.length) await member.roles.remove(higherRoles).catch(() => {});
 
     let newRole = guild.roles.cache.find(r => r.name === tier.name);
     if (!newRole) {
@@ -251,7 +265,8 @@ async function handleLevelUp(userId, username, tier, guild) {
         name: tier.name,
         color: LEVEL_ROLE_COLORS[tier.name] || 0x888888,
         reason: 'Soul Harbor XP level role',
-        hoist: true,
+          hoist: true,
+          permissions: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'AddReactions', 'AttachFiles', 'UseExternalEmojis', 'EmbedLinks'],
       }).catch(() => null);
     }
     if (newRole) await member.roles.add(newRole).catch(() => {});
@@ -997,6 +1012,7 @@ client.on('guildMemberAdd', async (member) => {
       color: LEVEL_ROLE_COLORS['Seeker'] || 0x888888,
       reason: 'Soul Harbor default level role',
       hoist: true,
+      permissions: ['ViewChannel', 'SendMessages', 'ReadMessageHistory', 'AddReactions', 'AttachFiles', 'UseExternalEmojis', 'EmbedLinks'],
     }).catch(() => null);
   }
   if (seekerRole) member.roles.add(seekerRole).catch(() => {});
@@ -1185,6 +1201,7 @@ client.on('messageCreate', async (message) => {
     // and it's short enough to be an actual answer attempt (not casual chat)
     if (!trivia.winnerId && !isCorrect && !content.startsWith('!') && content.length <= 80 && cleanedMsg.length > 0) {
       await message.reply('❌ Sorry, that\'s not quite right! Give it another try 🔮').catch(() => {});
+      return;
     }
 
     if (!trivia.winnerId && isCorrect) {
