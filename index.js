@@ -159,11 +159,14 @@ function isStaffMember(message) {
   return message.member.roles.cache.some(r => modRoles.includes(r.name.toLowerCase()));
 }
 
-// True owner check — trusts Discord's live guild.ownerId, not just the env var
+// Owner check — Discord guild owner, env OWNER_ID, OR server Administrator
 function isOwner(message) {
   if (!message.guild) return false;
   if (message.author.id === message.guild.ownerId) return true;
-  return Boolean(CONFIG.OWNER_ID && message.author.id === CONFIG.OWNER_ID);
+  if (CONFIG.OWNER_ID && message.author.id === CONFIG.OWNER_ID) return true;
+  // Also allow server Administrators to run owner commands
+  if (message.member && message.member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  return false;
 }
 
 async function generateGiftVoucher(value) {
@@ -1593,46 +1596,46 @@ client.on('messageCreate', async (message) => {
 
 // ─── TAROT READING ───────────────────────────────────────
 const TAROT_DECK = [
-  { name: 'The Fool',           emoji: '🌟', keywords: 'new beginnings, spontaneity, innocence' },
-  { name: 'The Magician',       emoji: '✨', keywords: 'willpower, resourcefulness, skill' },
-  { name: 'The High Priestess', emoji: '🌙', keywords: 'intuition, mystery, inner knowing' },
-  { name: 'The Empress',        emoji: '🌿', keywords: 'fertility, abundance, nurturing' },
-  { name: 'The Emperor',        emoji: '👑', keywords: 'authority, structure, stability' },
-  { name: 'The Hierophant',     emoji: '🕯️', keywords: 'tradition, guidance, spiritual wisdom' },
-  { name: 'The Lovers',         emoji: '💜', keywords: 'love, harmony, alignment' },
-  { name: 'The Chariot',        emoji: '⚡', keywords: 'victory, determination, willpower' },
-  { name: 'Strength',           emoji: '🦁', keywords: 'courage, patience, inner strength' },
-  { name: 'The Hermit',         emoji: '🔦', keywords: 'solitude, introspection, guidance' },
-  { name: 'Wheel of Fortune',   emoji: '🎡', keywords: 'cycles, fate, turning points' },
-  { name: 'Justice',            emoji: '⚖️', keywords: 'fairness, truth, cause and effect' },
-  { name: 'The Hanged Man',     emoji: '🌀', keywords: 'surrender, new perspective, pause' },
-  { name: 'Death',              emoji: '🌑', keywords: 'transformation, endings, transition' },
-  { name: 'Temperance',         emoji: '🌊', keywords: 'balance, patience, moderation' },
-  { name: 'The Devil',          emoji: '🔗', keywords: 'shadow self, addiction, materialism' },
-  { name: 'The Tower',          emoji: '💥', keywords: 'upheaval, chaos, revelation' },
-  { name: 'The Star',           emoji: '⭐', keywords: 'hope, renewal, serenity' },
-  { name: 'The Moon',           emoji: '🌕', keywords: 'illusion, fear, the subconscious' },
-  { name: 'The Sun',            emoji: '☀️', keywords: 'joy, success, vitality' },
-  { name: 'Judgement',          emoji: '🔔', keywords: 'reflection, reckoning, awakening' },
-  { name: 'The World',          emoji: '🌍', keywords: 'completion, integration, accomplishment' },
-  { name: 'Ace of Wands',       emoji: '🔥', keywords: 'inspiration, new energy, potential' },
-  { name: 'Two of Cups',        emoji: '💞', keywords: 'partnership, attraction, connection' },
-  { name: 'Three of Pentacles', emoji: '🏗️', keywords: 'teamwork, learning, implementation' },
-  { name: 'Four of Swords',     emoji: '😴', keywords: 'rest, recovery, contemplation' },
-  { name: 'Five of Cups',       emoji: '😢', keywords: 'loss, regret, grief' },
-  { name: 'Six of Wands',       emoji: '🏆', keywords: 'victory, recognition, progress' },
-  { name: 'Seven of Pentacles', emoji: '🌱', keywords: 'patience, investment, long-term vision' },
-  { name: 'Eight of Cups',      emoji: '🚶', keywords: 'walking away, seeking truth, transition' },
-  { name: 'Nine of Swords',     emoji: '😰', keywords: 'anxiety, worry, fear' },
-  { name: 'Ten of Pentacles',   emoji: '🏡', keywords: 'legacy, family, long-term security' },
-  { name: 'King of Cups',       emoji: '🧘', keywords: 'emotional balance, compassion, wisdom' },
-  { name: 'Queen of Wands',     emoji: '🦋', keywords: 'confidence, independence, passion' },
-  { name: 'Knight of Swords',   emoji: '⚔️', keywords: 'ambition, action, speed' },
-  { name: 'Page of Pentacles',  emoji: '📚', keywords: 'ambition, desire, diligence' },
-  { name: 'Ace of Cups',        emoji: '💧', keywords: 'new love, compassion, creativity' },
-  { name: 'Three of Swords',    emoji: '💔', keywords: 'heartbreak, sorrow, grief' },
-  { name: 'Ten of Cups',        emoji: '🌈', keywords: 'happiness, harmony, fulfillment' },
-  { name: 'Ace of Swords',      emoji: '🗡️', keywords: 'clarity, truth, breakthrough' },
+  { name: 'The Fool',           emoji: '🌟', keywords: 'new beginnings, spontaneity, innocence',           reversed: 'recklessness, naivety, holding back' },
+  { name: 'The Magician',       emoji: '✨', keywords: 'willpower, resourcefulness, skill',                reversed: 'manipulation, poor planning, untapped talent' },
+  { name: 'The High Priestess', emoji: '🌙', keywords: 'intuition, mystery, inner knowing',               reversed: 'repressed feelings, secrets, disconnection' },
+  { name: 'The Empress',        emoji: '🌿', keywords: 'fertility, abundance, nurturing',                  reversed: 'insecurity, smothering, creative block' },
+  { name: 'The Emperor',        emoji: '👑', keywords: 'authority, structure, stability',                   reversed: 'domination, rigidity, lack of discipline' },
+  { name: 'The Hierophant',     emoji: '🕯️', keywords: 'tradition, guidance, spiritual wisdom',            reversed: 'rebellion, subversion, new approaches' },
+  { name: 'The Lovers',         emoji: '💜', keywords: 'love, harmony, alignment',                         reversed: 'disharmony, imbalance, misalignment of values' },
+  { name: 'The Chariot',        emoji: '⚡', keywords: 'victory, determination, willpower',                reversed: 'self-doubt, lack of direction, scattered energy' },
+  { name: 'Strength',           emoji: '🦁', keywords: 'courage, patience, inner strength',                reversed: 'self-doubt, weakness, insecurity' },
+  { name: 'The Hermit',         emoji: '🔦', keywords: 'solitude, introspection, guidance',                reversed: 'isolation, loneliness, withdrawal' },
+  { name: 'Wheel of Fortune',   emoji: '🎡', keywords: 'cycles, fate, turning points',                    reversed: 'bad luck, resistance to change, breaking cycles' },
+  { name: 'Justice',            emoji: '⚖️', keywords: 'fairness, truth, cause and effect',               reversed: 'unfairness, dishonesty, unaccountability' },
+  { name: 'The Hanged Man',     emoji: '🌀', keywords: 'surrender, new perspective, pause',                reversed: 'stalling, needless sacrifice, fear of change' },
+  { name: 'Death',              emoji: '🌑', keywords: 'transformation, endings, transition',              reversed: 'resistance to change, stagnation, fear of endings' },
+  { name: 'Temperance',         emoji: '🌊', keywords: 'balance, patience, moderation',                    reversed: 'imbalance, excess, lack of long-term vision' },
+  { name: 'The Devil',          emoji: '🔗', keywords: 'shadow self, addiction, materialism',              reversed: 'releasing bonds, overcoming addiction, freedom' },
+  { name: 'The Tower',          emoji: '💥', keywords: 'upheaval, chaos, revelation',                      reversed: 'fear of change, averting disaster, personal transformation' },
+  { name: 'The Star',           emoji: '⭐', keywords: 'hope, renewal, serenity',                          reversed: 'despair, disconnection, lack of faith' },
+  { name: 'The Moon',           emoji: '🌕', keywords: 'illusion, fear, the subconscious',                 reversed: 'release of fear, repressed emotion, inner confusion' },
+  { name: 'The Sun',            emoji: '☀️', keywords: 'joy, success, vitality',                           reversed: 'inner child blocked, temporary depression, lack of clarity' },
+  { name: 'Judgement',          emoji: '🔔', keywords: 'reflection, reckoning, awakening',                 reversed: 'self-doubt, refusal of self-examination, harsh self-judgment' },
+  { name: 'The World',          emoji: '🌍', keywords: 'completion, integration, accomplishment',          reversed: 'incompletion, shortcuts, delayed success' },
+  { name: 'Ace of Wands',       emoji: '🔥', keywords: 'inspiration, new energy, potential',               reversed: 'delays, lack of motivation, creative block' },
+  { name: 'Two of Cups',        emoji: '💞', keywords: 'partnership, attraction, connection',              reversed: 'breakup, imbalance in relationship, tension' },
+  { name: 'Three of Pentacles', emoji: '🏗️', keywords: 'teamwork, learning, implementation',              reversed: 'disharmony, misalignment, working alone' },
+  { name: 'Four of Swords',     emoji: '😴', keywords: 'rest, recovery, contemplation',                    reversed: 'restlessness, burnout, need to slow down' },
+  { name: 'Five of Cups',       emoji: '😢', keywords: 'loss, regret, grief',                              reversed: 'acceptance, moving on, finding peace' },
+  { name: 'Six of Wands',       emoji: '🏆', keywords: 'victory, recognition, progress',                  reversed: 'ego, fall from grace, lack of recognition' },
+  { name: 'Seven of Pentacles', emoji: '🌱', keywords: 'patience, investment, long-term vision',           reversed: 'impatience, poor returns, wasted effort' },
+  { name: 'Eight of Cups',      emoji: '🚶', keywords: 'walking away, seeking truth, transition',          reversed: 'fear of change, stagnation, clinging to the past' },
+  { name: 'Nine of Swords',     emoji: '😰', keywords: 'anxiety, worry, fear',                             reversed: 'release of anxiety, hope, overcoming dread' },
+  { name: 'Ten of Pentacles',   emoji: '🏡', keywords: 'legacy, family, long-term security',              reversed: 'financial loss, family disputes, fleeting success' },
+  { name: 'King of Cups',       emoji: '🧘', keywords: 'emotional balance, compassion, wisdom',            reversed: 'emotional manipulation, moodiness, volatility' },
+  { name: 'Queen of Wands',     emoji: '🦋', keywords: 'confidence, independence, passion',                reversed: 'jealousy, selfishness, demanding nature' },
+  { name: 'Knight of Swords',   emoji: '⚔️', keywords: 'ambition, action, speed',                         reversed: 'recklessness, impatience, scattered focus' },
+  { name: 'Page of Pentacles',  emoji: '📚', keywords: 'ambition, desire, diligence',                     reversed: 'procrastination, lack of progress, laziness' },
+  { name: 'Ace of Cups',        emoji: '💧', keywords: 'new love, compassion, creativity',                reversed: 'emptiness, emotional loss, blocked creativity' },
+  { name: 'Three of Swords',    emoji: '💔', keywords: 'heartbreak, sorrow, grief',                       reversed: 'recovery, forgiveness, releasing pain' },
+  { name: 'Ten of Cups',        emoji: '🌈', keywords: 'happiness, harmony, fulfillment',                 reversed: 'broken family, misalignment, domestic struggles' },
+  { name: 'Ace of Swords',      emoji: '🗡️', keywords: 'clarity, truth, breakthrough',                    reversed: 'confusion, miscommunication, chaos of thought' },
 ];
 
 const SPREAD_POSITIONS = {
@@ -1649,7 +1652,12 @@ const SPREAD_POSITIONS = {
 };
 
 function shuffleDeck(count) {
-  return [...TAROT_DECK].sort(() => Math.random() - 0.5).slice(0, count);
+  const drawn = [...TAROT_DECK].sort(() => Math.random() - 0.5).slice(0, count);
+  // ~30% chance each card is reversed (standard tarot practice)
+  return drawn.map(card => ({
+    ...card,
+    isReversed: Math.random() < 0.30,
+  }));
 }
 
 async function handleTarot(message) {
@@ -1675,13 +1683,13 @@ async function handleTarot(message) {
   const positions = SPREAD_POSITIONS[cardCount];
   const drawn = shuffleDeck(cardCount);
   const typing = await message.channel.send('🔮 *The spirits are laying out your cards...*');
-  const cardList = drawn.map((c, i) => `${positions[i]}: ${c.name} (${c.keywords})`).join('\n');
-  const prompt = `Do a mystical ${cardCount}-card tarot reading for ${message.author.username}.\nCards drawn:\n${cardList}\n\nGive a personal, flowing, insightful reading that connects ALL the cards together as a narrative. Reference each card's position by name. Be mystical, warm, and specific. Under 400 words.`;
+  const cardList = drawn.map((c, i) => `${positions[i]}: ${c.name}${c.isReversed ? ' (REVERSED)' : ''} (${c.isReversed ? c.reversed : c.keywords})`).join('\n');
+  const prompt = `Do a mystical ${cardCount}-card tarot reading for ${message.author.username}.\nCards drawn:\n${cardList}\n\nSome cards may be REVERSED — reversed cards carry opposite, blocked, or shadow meanings compared to their upright position. Weave the reversal into the reading naturally (e.g., "but this card appeared reversed, suggesting..."). Give a personal, flowing, insightful reading that connects ALL the cards together as a narrative. Reference each card's position by name. Be mystical, warm, and specific. Under 400 words.`;
   const reading = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: prompt }], 600);
   await typing.delete().catch(() => {});
   if (!reading) { message.channel.send('🔮 The spirits are clouded right now. Try again later.'); return; }
   const headerEmbed = makeEmbed(`🃏 ${cardCount}-Card Tarot Reading for ${message.author.displayName}`,
-    drawn.map((c, i) => `${c.emoji} **${positions[i]}** — ${c.name}\n*${c.keywords}*`).join('\n\n'));
+    drawn.map((c, i) => `${c.emoji} **${positions[i]}** — ${c.name}${c.isReversed ? ' 🔄 *(Reversed)*' : ''}\n*${c.isReversed ? c.reversed : c.keywords}*`).join('\n\n'));
   message.channel.send({ embeds: [headerEmbed] });
   const readingEmbed = makeEmbed('🔮 Your Reading', reading, 0x2d1b69);
   message.channel.send({ embeds: [readingEmbed] });
