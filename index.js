@@ -686,6 +686,7 @@ const CONFIG = {
     ANNOUNCEMENTS: process.env.CHANNEL_ANNOUNCEMENTS  || 'announcements',
     CLASS:         process.env.CHANNEL_CLASS           || 'spirit-keeping-classes',
     SERVER_GUIDE:  process.env.CHANNEL_SERVER_GUIDE    || 'server-guide',
+    NEWSLETTERS:   process.env.CHANNEL_NEWSLETTERS     || 'pagan-shop-newsletters',
   },
   ROLES: {
     SPIRIT_SEEKER:    'Spirit Seeker',
@@ -770,6 +771,20 @@ async function saveCouponToShop(code, percent = CONFIG.COUPONS.DISCOUNT_PERCENT,
     if (data.success) { console.log(`✅ Coupon saved to Zen Cart: ${code}`); return true; }
     else { console.error('❌ Coupon save failed:', data.error); return false; }
   } catch (e) { console.error('❌ Coupon endpoint error:', e.message); return false; }
+}
+
+// ── AUTO-CLEANUP: purge expired bot-generated coupons from Zen Cart ──
+async function cleanupExpiredCoupons() {
+  try {
+    const res = await fetch(`${process.env.SHOP_URL}/cleanup_coupons.php`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Coupon-Secret': process.env.BOT_COUPON_SECRET },
+      body: JSON.stringify({ prefix: 'SOUL-', max_age_days: 7 })
+    });
+    const data = await res.json();
+    if (data.success) console.log(`🧹 Coupon cleanup: removed ${data.deleted} expired coupon(s)`);
+    else console.error('❌ Coupon cleanup failed:', data.error);
+  } catch (e) { console.error('❌ Coupon cleanup endpoint error:', e.message); }
 }
 
 function getChannel(guild, name) {
@@ -892,6 +907,10 @@ async function ensureAdminChannel(guild) {
         '━━━━━━━━━━━━━━━━━━━━━━\n' +
         '**⚙️ Server Setup**\n\n' +
         '`!setup` — Re-run channel emoji organization\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**📬 Newsletters**\n\n' +
+        '`!newsletter Your promo text here` — Post a formatted announcement to #pagan-shop-newsletters\n' +
+        '*(Use **bold** and \\\\n for line breaks. Great for sharing email promos with the Discord community.)*\n\n' +
         '━━━━━━━━━━━━━━━━━━━━━━\n' +
         '**⚠️ IMPORTANT: If `!syncrolesall` says "only server owner can do this"**\n' +
         'Go to **Server Settings → Roles** and drag the **Soul Harbor** bot role to the very top of the list (above all other roles). The bot can only assign roles that are below its own role in the hierarchy.'
@@ -1190,14 +1209,18 @@ client.on('messageCreate', async (message) => {
     const answerClean = answerLower.replace(/[^a-z0-9\s]/g, '').trim();
     // Match: exact, starts with, ends with, or answer words all appear in message
     const answerWords = answerClean.split(/\s+/);
+    const cleanedWords = cleanedMsg.split(/\s+/);
     const allWordsPresent = answerWords.every(w => cleanedMsg.includes(w));
+    // Prevent false positives: if the user's message is much longer than the answer,
+    // don't count allWordsPresent alone (avoids matching casual chat that happens to contain the answer word)
+    const tightAllWords = allWordsPresent && cleanedWords.length <= answerWords.length * 3;
     const isCorrect = cleanedMsg === answerClean ||
                       cleanedMsg.startsWith(answerClean) ||
                       lower === answerLower ||
                       lower.endsWith(' ' + answerLower) ||
                       lower.startsWith(answerLower) ||
-                      allWordsPresent;
-    console.log(`[TRIVIA] Expected: "${answerClean}" | Got: "${cleanedMsg}" | AllWords: ${allWordsPresent} | Match: ${isCorrect}`);
+                      tightAllWords;
+    console.log(`[TRIVIA] Expected: "${answerClean}" | Got: "${cleanedMsg}" (${cleanedWords.length} words) | AllWords: ${allWordsPresent} | TightMatch: ${tightAllWords} | Correct: ${isCorrect}`);
 
     // ── WRONG ANSWER FEEDBACK ──
     // Only respond if: trivia is still open, no winner yet, message isn't a command,
@@ -1209,16 +1232,23 @@ client.on('messageCreate', async (message) => {
 
     if (!trivia.winnerId && isCorrect) {
       trivia.winnerId = userId;
+      console.log(`[TRIVIA] ✅ Winner: ${message.author.username} (${userId}) — answer: "${trivia.answer}"`);
       const code = generateCouponCode();
-      await saveCouponToShop(code);
+      const couponSaved = await saveCouponToShop(code);
+      console.log(`[TRIVIA] Coupon ${code} saved to shop: ${couponSaved}`);
       if (db) {
-        const tStart = triviaActive.get(message.channel.id).startTime || Date.now();
-        const elapsed = (Date.now() - tStart) / 1000;
-        await addXP(userId, message.author.username, XP_VALUES.trivia_win, message.guild);
-        await db.query('UPDATE members SET trivia_wins = trivia_wins + 1 WHERE user_id=$1', [userId]);
-        const mTrivia = await dbGet(userId);
-        if (mTrivia && mTrivia.trivia_wins >= 25) await awardBadge(userId, message.author.username, 'trivia_master', message.guild);
-        if (elapsed <= 60) await awardBadge(userId, message.author.username, 'lightning_reflexes', message.guild);
+        try {
+          const tStart = triviaActive.get(message.channel.id)?.startTime || Date.now();
+          const elapsed = (Date.now() - tStart) / 1000;
+          await addXP(userId, message.author.username, XP_VALUES.trivia_win, message.guild);
+          await db.query('UPDATE members SET trivia_wins = trivia_wins + 1 WHERE user_id=$1', [userId]);
+          const mTrivia = await dbGet(userId);
+          console.log(`[TRIVIA] ${message.author.username} now has ${mTrivia?.trivia_wins || 0} trivia wins, answered in ${elapsed.toFixed(1)}s`);
+          if (mTrivia && mTrivia.trivia_wins >= 25) await awardBadge(userId, message.author.username, 'trivia_master', message.guild);
+          if (elapsed <= 60) await awardBadge(userId, message.author.username, 'lightning_reflexes', message.guild);
+        } catch (dbErr) {
+          console.error(`[TRIVIA] DB error during win processing:`, dbErr.message);
+        }
       }
       // ── DELIVER COUPON — DM first, fall back to channel if DMs are off ──
       let dmSuccess = false;
@@ -1227,9 +1257,9 @@ client.on('messageCreate', async (message) => {
           `🏆 **Congratulations! You won the Soul Harbor Trivia Contest!**\n\nYour exclusive **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code** is:\n# \`${code}\`\n\nUse it at **thepaganshoponline.com** at checkout.\nValid for 7 days. Keep this code private! 🛍️🔮`
         );
         dmSuccess = true;
-        console.log(`✅ Coupon DM sent to ${message.author.username}: ${code}`);
+        console.log(`[TRIVIA] ✅ Coupon DM sent successfully to ${message.author.username}: ${code}`);
       } catch(e) {
-        console.log(`⚠️ Could not DM winner ${message.author.username}:`, e.message);
+        console.log(`[TRIVIA] ⚠️ DM FAILED for ${message.author.username} (${e.code || e.message}) — falling back to channel post`);
       }
 
       if (dmSuccess) {
@@ -1247,6 +1277,7 @@ client.on('messageCreate', async (message) => {
         const codeMsg = await message.channel.send(
           `${message.author} 🎁 Your **${CONFIG.COUPONS.DISCOUNT_PERCENT}% discount code**: \`${code}\`\n*(Valid 7 days at thepaganshoponline.com — this message will disappear soon!)*`
         );
+        console.log(`[TRIVIA] 📬 Coupon posted in channel for ${message.author.username} (DM fallback): ${code}`);
 
         // Alert Billy that DM failed so he can follow up manually if needed
         try {
@@ -1258,6 +1289,7 @@ client.on('messageCreate', async (message) => {
         setTimeout(() => {
           codeMsg.delete().catch(() => {});
           winMsg.delete().catch(() => {});
+          console.log(`[TRIVIA] 🗑️ Auto-deleted fallback coupon message for ${message.author.username}`);
         }, 90_000);
       }
       triviaActive.delete(message.channel.id);
@@ -1271,10 +1303,18 @@ client.on('messageCreate', async (message) => {
             reason: 'Soul Harbor: first trivia winner — auto-created Contest Champion role',
             hoist: false,
           });
-          console.log(`✅ Created "${CONFIG.ROLES.CONTEST_CHAMPION}" role automatically`);
-        } catch(e) { console.error('Could not create Contest Champion role:', e.message); }
+          console.log(`[TRIVIA] ✅ Created "${CONFIG.ROLES.CONTEST_CHAMPION}" role automatically`);
+        } catch(e) { console.error(`[TRIVIA] ❌ Could not create Contest Champion role:`, e.message); }
       }
-      if (champRole) await message.member.roles.add(champRole).catch(console.error);
+      if (champRole) {
+        try {
+          await message.member.roles.add(champRole);
+          console.log(`[TRIVIA] ✅ Contest Champion role assigned to ${message.author.username}`);
+        } catch(e) {
+          console.error(`[TRIVIA] ❌ Could not assign Contest Champion role to ${message.author.username}: ${e.message}`);
+          console.error(`[TRIVIA] 💡 Tip: Make sure the Soul Harbor bot role is ABOVE "Contest Champion" in Server Settings → Roles`);
+        }
+      }
       return;
     }
   }
@@ -1416,6 +1456,24 @@ client.on('messageCreate', async (message) => {
         console.error('Delete msg error:', err);
         message.reply('❌ Could not find or delete that message. Make sure the ID is correct and the message is in this channel.');
       }
+      return;
+    }
+
+    // ── !newsletter <message> — post a formatted newsletter/promo to the newsletters channel (owner only) ──
+    if (lower.startsWith('!newsletter') && isOwner(message)) {
+      const body = content.slice(11).trim();
+      if (!body) {
+        message.reply('❌ Usage: `!newsletter Your newsletter text here`\n💡 Tip: Use `**bold**` and `\\n` for formatting. Include coupon codes, promo links, etc.');
+        return;
+      }
+      const nlChannel = getChannel(message.guild, CONFIG.CHANNELS.NEWSLETTERS);
+      if (!nlChannel) {
+        message.reply(`❌ Newsletter channel not found. Looking for: **${CONFIG.CHANNELS.NEWSLETTERS}**\nCreate a channel with that name, or set \`CHANNEL_NEWSLETTERS\` on Railway.`);
+        return;
+      }
+      const embed = makeEmbed('📬 The Pagan Shop Online — Newsletter', body.replace(/\\n/g, '\n'), 0x7B2FBE);
+      await nlChannel.send({ embeds: [embed] });
+      message.reply(`✅ Newsletter posted to ${nlChannel}!`);
       return;
     }
 
@@ -1717,10 +1775,20 @@ async function handleGhostStory(message) {
 }
 
 async function handleTrivia(message) {
-  if (triviaActive.has(message.channel.id)) { message.channel.send('🎯 A contest is already active! Answer the current question first.'); return; }
+  if (triviaActive.has(message.channel.id)) {
+    const existing = triviaActive.get(message.channel.id);
+    // If old trivia has a winner but wasn't cleaned up, force-clear it
+    if (existing.winnerId) {
+      console.log(`[TRIVIA] ⚠️ Force-clearing stale trivia in ${message.channel.name} (had winner ${existing.winnerId})`);
+      triviaActive.delete(message.channel.id);
+    } else {
+      message.channel.send('🎯 A contest is already active! Answer the current question first.');
+      return;
+    }
+  }
   const typing = await message.channel.send('🎯 *Consulting the spirits for a question...*');
   const result = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-    { role: 'user', content: `Generate a trivia question about spirits, the paranormal, metaphysical topics, or spirit keeping. IMPORTANT: Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Be creative and vary the topic. Format EXACTLY as:\nQUESTION: [question here]\nANSWER: [one word or short phrase answer]` }], 150);
+    { role: 'user', content: `Generate a trivia question about spirits, the paranormal, metaphysical topics, or spirit keeping. IMPORTANT RULES:\n1. The question and answer must be FACTUALLY ACCURATE based on widely accepted paranormal lore and mythology. Do not make up traits or attributes (e.g., poltergeists are NOT friendly — they are disruptive/mischievous).\n2. The answer must be clearly and unambiguously correct.\n3. Do NOT ask any of these already-used questions (pick something completely different): ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}.\n4. Be creative and vary the topic.\nFormat EXACTLY as:\nQUESTION: [question here]\nANSWER: [one word or short phrase answer]` }], 150);
   await typing.delete().catch(() => {});
   if (!result) { message.channel.send('🎯 Could not generate a question. Try again!'); return; }
   const qMatch = result.match(/QUESTION:\s*(.+)/i);
@@ -1774,11 +1842,24 @@ async function handleChat(message, userInput) {
 }
 
 async function handleCoupon(message) {
-  const hasVIP = message.member.roles.cache.find(r => r.name === CONFIG.ROLES.VIP_KEEPER);
-  if (!hasVIP) { message.reply('🔮 Discount codes are earned through contests and VIP status. Join a trivia contest to win one!'); return; }
+  // Accept either VIP Keeper role, Verified Patron badge-role, or verified_patron in database
+  const hasVIP = message.member.roles.cache.find(r =>
+    r.name === CONFIG.ROLES.VIP_KEEPER || r.name === '✅ Verified Patron'
+  );
+  let hasDbBadge = false;
+  if (!hasVIP && db) {
+    const m = await dbGet(message.author.id);
+    hasDbBadge = m?.badges?.includes('verified_patron');
+  }
+  if (!hasVIP && !hasDbBadge) {
+    message.reply('🔮 Discount codes are earned through contests and Verified Patron status. Join a trivia contest to win one, or make a purchase from the shop!');
+    return;
+  }
   const code = generateCouponCode();
   await saveCouponToShop(code);
-  message.author.send(`🎁 Your exclusive discount code: \`${code}\`\nUse at thepaganshoponline.com — valid 7 days!`);
+  message.author.send(`🎁 Your exclusive discount code: \`${code}\`\nUse at thepaganshoponline.com — valid 7 days!`).catch(() => {
+    message.reply(`🎁 Your discount code: \`${code}\` *(I couldn't DM you — save this quickly!)*`);
+  });
   message.reply('✅ Your discount code has been sent to your DMs! 🎁');
 }
 
@@ -1793,8 +1874,20 @@ async function handleBadges(message) {
   const levelRole = memberRoles.find(r => levelRoleNames.includes(r.name));
   const specialRoles = memberRoles.filter(r => Object.values(CONFIG.ROLES).includes(r.name));
 
-  let rolesDisplay = '';
-  if (levelRole) rolesDisplay += `✨ **Rank:** ${levelRole.name}\n`;
+  // If no Discord level role found, fall back to the database tier (prevents "nothing" display)
+  let rankDisplay = '';
+  if (levelRole) {
+    rankDisplay = `✨ **Rank:** ${levelRole.name}\n`;
+  } else if (db) {
+    await dbEnsure(message.author.id, message.author.username);
+    const mRank = await dbGet(message.author.id);
+    const tier = getTierForXP(mRank?.xp || 0);
+    rankDisplay = `✨ **Rank:** ${tier.name}\n`;
+  } else {
+    rankDisplay = `✨ **Rank:** Seeker\n`;
+  }
+
+  let rolesDisplay = rankDisplay;
   if (specialRoles.size) rolesDisplay += specialRoles.map(r => `✅ ${r.name}`).join('\n');
 
   let phase2 = '';
@@ -1806,10 +1899,8 @@ async function handleBadges(message) {
       : '\n\n*No achievement badges yet — post altar pics, win trivia, attend classes!*';
   }
 
-  const fallback = "You\'re just getting started! 🔮 Participate to earn ranks and badges.\n\n**How to earn roles:**\n🔮 Seeker — join the server (you already are one!)\n🏆 Contest Champion — win a trivia contest\n💎 VIP Keeper — make a purchase from the shop\n⭐ Spirit Elder — long time active member";
-
   message.channel.send({ embeds: [makeEmbed(`🏅 Badges for ${message.author.displayName}`,
-    (rolesDisplay.trim() || fallback) + phase2 +
+    rolesDisplay.trim() + phase2 +
     '\n\n*Use `!allbadges` to see all achievement badges*')] });
 }
 
@@ -1905,8 +1996,13 @@ async function scheduleDailyTasks() {
       return;
     }
     console.log(`✅ Trivia posting to #${channel.name}`);
+    // Force-clear any stale trivia state before starting daily
+    if (triviaActive.has(channel.id)) {
+      console.log(`[TRIVIA] ⚠️ Force-clearing stale trivia in #${channel.name} before daily trivia`);
+      triviaActive.delete(channel.id);
+    }
     const result = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT },
-      { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. IMPORTANT: Do NOT ask any of these already-used questions: ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}. Format EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }], 150);
+      { role: 'user', content: `Generate a trivia question about spirits, paranormal, or metaphysical topics. IMPORTANT RULES:\n1. The question and answer must be FACTUALLY ACCURATE based on widely accepted paranormal lore and mythology. Do not invent traits or attributes for well-known entities.\n2. The answer must be clearly and unambiguously correct.\n3. Do NOT ask any of these already-used questions: ${recentTriviaQuestions.length > 0 ? recentTriviaQuestions.slice(-50).join(' | ') : 'none'}.\nFormat EXACTLY as:\nQUESTION: [question]\nANSWER: [short answer]` }], 150);
     if (!result) return;
     const qMatch = result.match(/QUESTION:\s*(.+)/i);
     const aMatch = result.match(/ANSWER:\s*(.+)/i);
@@ -1939,7 +2035,10 @@ async function scheduleDailyTasks() {
     console.log('⚠️  BLOG_FEED_URL not set — blog-to-Discord posting disabled. Set it to the blog RSS/feed URL on Railway.');
   }
 
-  console.log(`✅ Daily tasks scheduled in timezone ${CONFIG.TIMEZONE}: ghost 10PM · trivia 6PM · card 10AM · class Wed 6PM`);
+  // 🧹 Coupon cleanup — 3:00 AM daily, removes expired bot-generated SOUL- coupons from Zen Cart
+  cron.schedule('0 3 * * *', scheduledJob('coupon-cleanup', async () => { await cleanupExpiredCoupons(); }), TZ);
+
+  console.log(`✅ Daily tasks scheduled in timezone ${CONFIG.TIMEZONE}: ghost 10PM · trivia 6PM · card 10AM · class Wed 6PM · coupon-cleanup 3AM`);
 }
 
 // ─── BLOG → DISCORD POLLER ───────────────────────────────
