@@ -1646,7 +1646,7 @@ client.on('messageCreate', async (message) => {
       message.channel.send({ embeds: [embed] }); return;
     }
     // Help / commands
-    if (cleanLower.match(/help|commands|what can you do|what do you do|how do i|how to/)) { await handleHelp(message); return; }
+    if (cleanLower.match(/^(help|commands|what can you do|what do you do|how do i use you|how to use you|how do you work|what are your commands)$/)) { await handleHelp(message); return; }
 
     await handleChat(message, cleanContent);
   }
