@@ -1735,7 +1735,7 @@ async function handleTarot(message) {
   else if (wordMatch) cardCount = wordNums[wordMatch[1].toLowerCase()] || 3;
   if (cardCount < 3) cardCount = 3;
   if (cardCount > 14) cardCount = 14;
-  const validSpreads = [3, 4, 5, 6, 7, 10, 12, 14];
+  const validSpreads = [3, 4, 5, 6, 7, 8, 9, 10, 12, 14];
   cardCount = validSpreads.reduce((prev, curr) => Math.abs(curr - cardCount) < Math.abs(prev - cardCount) ? curr : prev);
 
   const positions = SPREAD_POSITIONS[cardCount];
