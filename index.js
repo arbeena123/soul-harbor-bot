@@ -1697,6 +1697,8 @@ const TAROT_DECK = [
 ];
 
 const SPREAD_POSITIONS = {
+  1:  ['Answer'],
+  2:  ['Yes/For', 'No/Against'],
   3:  ['Past', 'Present', 'Future'],
   4:  ['Mind', 'Body', 'Spirit', 'Outcome'],
   5:  ['Past', 'Present', 'Future', 'Hopes', 'Fears'],
@@ -1705,8 +1707,11 @@ const SPREAD_POSITIONS = {
   8:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Hidden Influence', 'Advice', 'Outcome'],
   9:  ['Past', 'Present', 'Future', 'Foundation', 'Challenge', 'Hidden Influence', 'Advice', 'Hopes', 'Outcome'],
   10: ['Present Situation','Immediate Challenge','Distant Past','Recent Past','Best Outcome','Immediate Future','Your Influence','External Influence','Hopes & Fears','Final Outcome'],
+  11: ['Present Situation','Immediate Challenge','Distant Past','Recent Past','Best Outcome','Immediate Future','Your Influence','External Influence','Inner Strength','Hopes & Fears','Final Outcome'],
   12: ['Past','Present','Future','Foundation','Challenge','Hidden Influence','Advice','External Energy','Inner Strength','Hopes','Fears','Final Outcome'],
+  13: ['Distant Past','Recent Past','Present','Near Future','Far Future','Foundation','Challenge','Hidden Influence','Your Influence','External Influence','Advice','Hopes & Fears','Final Outcome'],
   14: ['Distant Past','Recent Past','Present','Near Future','Far Future','Foundation','Challenge','Hidden Influence','Your Influence','External Influence','Advice','Inner Strength','Hopes & Fears','Final Outcome'],
+  15: ['Distant Past','Recent Past','Present','Near Future','Far Future','Foundation','Challenge','Hidden Influence','Your Influence','External Influence','Advice','Inner Strength','Hopes','Fears','Final Outcome'],
 };
 
 function shuffleDeck(count) {
@@ -1727,23 +1732,31 @@ async function handleTarot(message) {
     if (mCheck && mCheck.soul_harbor_interactions >= 50) await awardBadge(message.author.id, message.author.username, 'spirit_conversant', message.guild);
   }
   const content = message.content;
-  const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, 'a':3 };
+  const wordNums = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10, eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15 };
   const digitMatch = content.match(/(\d+)[\s-]*card/i);
-  const wordMatch = content.match(/(one|two|three|four|five|six|seven|eight|nine|ten)[- ]*card/i);
+  const wordMatch = content.match(/(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)[- ]*card/i);
+  const yesNoMatch = content.match(/\byes\s*(or|\/)\s*no\b/i);
   let cardCount = 3;
   if (digitMatch) cardCount = parseInt(digitMatch[1]);
   else if (wordMatch) cardCount = wordNums[wordMatch[1].toLowerCase()] || 3;
-  if (cardCount < 3) cardCount = 3;
-  if (cardCount > 14) cardCount = 14;
-  const validSpreads = [3, 4, 5, 6, 7, 8, 9, 10, 12, 14];
-  cardCount = validSpreads.reduce((prev, curr) => Math.abs(curr - cardCount) < Math.abs(prev - cardCount) ? curr : prev);
+  else if (yesNoMatch) cardCount = 1;
+  if (cardCount < 1) cardCount = 1;
+  if (cardCount > 15) cardCount = 15;
 
   const positions = SPREAD_POSITIONS[cardCount];
   const drawn = shuffleDeck(cardCount);
   const typing = await message.channel.send('🔮 *The spirits are laying out your cards...*');
   const cardList = drawn.map((c, i) => `${positions[i]}: ${c.name}${c.isReversed ? ' (REVERSED)' : ''} (${c.isReversed ? c.reversed : c.keywords})`).join('\n');
-  const prompt = `Do a mystical ${cardCount}-card tarot reading for ${message.author.username}.\nCards drawn:\n${cardList}\n\nSome cards may be REVERSED — reversed cards carry opposite, blocked, or shadow meanings compared to their upright position. Weave the reversal into the reading naturally (e.g., "but this card appeared reversed, suggesting..."). Give a personal, flowing, insightful reading that connects ALL the cards together as a narrative. Reference each card's position by name. Be mystical, warm, and specific. Under 400 words.`;
-  const reading = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: prompt }], 600);
+  let prompt;
+  if (cardCount === 1) {
+    const isYesNo = yesNoMatch || content.match(/\byes\b.*\bno\b/i);
+    prompt = isYesNo
+      ? `Do a mystical 1-card yes/no tarot reading for ${message.author.username}.\nCard drawn:\n${cardList}\n\nBased on the card drawn (and whether it is upright or reversed), give a clear YES or NO answer first, then a brief mystical explanation of why the card points that way. If reversed, weave that into your reasoning. Keep it concise, warm, and mystical. Under 150 words.`
+      : `Do a mystical 1-card tarot reading for ${message.author.username}.\nCard drawn:\n${cardList}\n\nGive a focused, insightful reading based on this single card. If reversed, weave the reversal meaning naturally. Be mystical, warm, and specific. Under 150 words.`;
+  } else {
+    prompt = `Do a mystical ${cardCount}-card tarot reading for ${message.author.username}.\nCards drawn:\n${cardList}\n\nSome cards may be REVERSED — reversed cards carry opposite, blocked, or shadow meanings compared to their upright position. Weave the reversal into the reading naturally (e.g., "but this card appeared reversed, suggesting..."). Give a personal, flowing, insightful reading that connects ALL the cards together as a narrative. Reference each card's position by name. Be mystical, warm, and specific. Under 400 words.`;
+  }
+  const reading = await askGPT([{ role: 'system', content: SPIRIT_SYSTEM_PROMPT }, { role: 'user', content: prompt }], cardCount <= 2 ? 300 : 600);
   await typing.delete().catch(() => {});
   if (!reading) { message.channel.send('🔮 The spirits are clouded right now. Try again later.'); return; }
   const headerEmbed = makeEmbed(`🃏 ${cardCount}-Card Tarot Reading for ${message.author.displayName}`,
