@@ -897,6 +897,10 @@ async function ensureAdminChannel(guild) {
         '`!cleanmemberrole` — One-shot: remove the Member role from every member (run once to clean up)\n' +
         '*(New members now start as Seeker only — Member role is no longer auto-assigned)*\n\n' +
         '━━━━━━━━━━━━━━━━━━━━━━\n' +
+        '**🎁 Welcome Coupons**\n\n' +
+        '`!welcomecoupons` — Send 10% off welcome coupons to members who joined in the last 7 days and haven\'t received one yet\n' +
+        '*(New members get one automatically via DM when they join)*\n\n' +
+        '━━━━━━━━━━━━━━━━━━━━━━\n' +
         '**🗑️ Message Moderation (Owner & Mods)**\n\n' +
         '`!purge 5` — Delete the last 5 messages in this channel (1–100)\n' +
         '`!deletemsg [messageID]` — Delete one specific message by its ID\n' +
@@ -1414,6 +1418,46 @@ client.on('messageCreate', async (message) => {
     if (lower.startsWith('!ask ')) { await handleAsk(message, content.slice(5).trim()); return; }
     if (lower === '!invite' || lower === '!referral') { await handleInvite(message); return; }
     if (lower.startsWith('!award')) { await handleAward(message, content.slice(6).trim()); return; }
+    if (lower === '!welcomecoupons') {
+      if (!isOwner(message)) { message.reply('🔒 Only admins can run this command.'); return; }
+      if (!db) { message.reply('❌ Database not connected.'); return; }
+      try {
+        // Find members who joined in the last 7 days and haven't received a welcome coupon
+        const rows = (await db.query("SELECT user_id, username FROM members WHERE welcome_coupon IS NULL AND created_at >= NOW() - INTERVAL '7 days'")).rows;
+        if (rows.length === 0) { message.reply('✅ All recent members (last 7 days) already have welcome coupons!'); return; }
+        await message.reply(`🎁 Sending welcome coupons to **${rows.length}** member(s)... This may take a moment.`);
+        let sent = 0, failed = 0;
+        for (const row of rows) {
+          try {
+            const memberObj = await message.guild.members.fetch(row.user_id).catch(() => null);
+            if (!memberObj) { failed++; continue; } // member left the server
+            const couponCode = generateCouponCode();
+            const saved = await saveCouponToShop(couponCode, 10, 7);
+            if (!saved) { failed++; continue; }
+            await db.query('UPDATE members SET welcome_coupon=$1 WHERE user_id=$2', [couponCode, row.user_id]);
+            const couponEmbed = new EmbedBuilder()
+              .setColor(0x5865F2)
+              .setTitle('🎁 Welcome Gift — 10% Off Coupon!')
+              .setDescription(
+                `Thank you for being part of **The Pagan Shop Online** Discord!\n\n` +
+                `Here's your exclusive **10% off** coupon:\n\n` +
+                `### 🏷️ \`${couponCode}\`\n\n` +
+                `Use it at **thepaganshoponline.com** at checkout.\n\n` +
+                `⏰ This coupon is valid for **7 days** and is for one-time use only.\n\n` +
+                `Blessed be! 🔮`
+              )
+              .setFooter({ text: 'The Pagan Shop Online • Soul Harbor' })
+              .setTimestamp();
+            await memberObj.send({ embeds: [couponEmbed] }).catch(() => { failed++; });
+            sent++;
+            // Small delay to avoid rate limits
+            await new Promise(r => setTimeout(r, 1500));
+          } catch (e) { failed++; console.error(`Welcome coupon error for ${row.username}:`, e.message); }
+        }
+        message.channel.send(`✅ Welcome coupons sent! **${sent}** delivered, **${failed}** failed (members may have DMs closed or left the server).`);
+      } catch (e) { message.reply('❌ Error: ' + e.message); }
+      return;
+    }
     // ── FIX: accept all variations of sync command ──
     if (lower === '!syncrolesall' || lower === '!sync roles all' || lower === '!syncroles' || lower === '!sync') {
       await handleSyncRoles(message); return;
