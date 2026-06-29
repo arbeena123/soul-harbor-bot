@@ -57,6 +57,7 @@ async function initDB() {
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS manifestation_posts INTEGER DEFAULT 0`,
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS paranormal_posts INTEGER DEFAULT 0`,
     `ALTER TABLE members ADD COLUMN IF NOT EXISTS soul_harbor_interactions INTEGER DEFAULT 0`,
+    `ALTER TABLE members ADD COLUMN IF NOT EXISTS welcome_coupon TEXT DEFAULT NULL`,
   ];
   for (const sql of newCols) await db.query(sql).catch(() => {});
   // Ensure referrals table has unique constraint on invitee_id (prevents silent duplicate inserts)
@@ -1070,6 +1071,45 @@ client.on('guildMemberAdd', async (member) => {
     `May your spirits guide you well. 🌙`
   ).setThumbnail(member.user.displayAvatarURL());
   welcomeChannel.send({ embeds: [embed] });
+
+  // ── WELCOME COUPON: DM new member a unique 10% off coupon ──
+  if (db && process.env.SHOP_URL && process.env.BOT_COUPON_SECRET) {
+    try {
+      const existingMember = await dbGet(member.id);
+      // Only send if they haven't received a welcome coupon before (one per customer)
+      if (!existingMember || !existingMember.welcome_coupon) {
+        const couponCode = generateCouponCode();
+        const saved = await saveCouponToShop(couponCode, 10, 7); // 10% off, 7 days
+        if (saved) {
+          // Save to DB so they can't get another one if they rejoin
+          await db.query('UPDATE members SET welcome_coupon=$1 WHERE user_id=$2', [couponCode, member.id]);
+          
+          const couponEmbed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle('🎁 Welcome Gift — 10% Off Coupon!')
+            .setDescription(
+              `Thank you for joining **The Pagan Shop Online** Discord!\n\n` +
+              `Here's your exclusive **10% off** coupon as a welcome gift:\n\n` +
+              `### 🏷️ \`${couponCode}\`\n\n` +
+              `Use it at **thepaganshoponline.com** at checkout.\n\n` +
+              `⏰ This coupon is valid for **7 days** and is for one-time use only.\n\n` +
+              `Welcome to the community! 🔮`
+            )
+            .setFooter({ text: 'The Pagan Shop Online • Soul Harbor' })
+            .setTimestamp();
+          
+          await member.send({ embeds: [couponEmbed] }).catch(() => {
+            console.log(`⚠️ Could not DM welcome coupon to ${member.user.username} (DMs may be closed)`);
+          });
+          console.log(`🎁 Welcome coupon ${couponCode} sent to ${member.user.username}`);
+        }
+      } else {
+        console.log(`ℹ️ ${member.user.username} already received welcome coupon: ${existingMember.welcome_coupon}`);
+      }
+    } catch (e) {
+      console.error('Welcome coupon error:', e.message);
+    }
+  }
 
   if (db) {
     const pending = (await db.query('SELECT * FROM referrals WHERE invitee_id=$1 AND confirmed=FALSE', [member.id])).rows;
